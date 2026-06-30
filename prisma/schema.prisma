@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Reception {
+  id                Int       @id @default(autoincrement())
+  code_fournisseur  String    @db.VarChar(4)
+  num_commande      String    @db.VarChar(2)
+  num_type_produit  String    @db.VarChar(2)
+  type_materiel     TypeMateriel
+  diametre_fil      Decimal?  @db.Decimal(5, 2)
+  longueur_feuillard Decimal? @db.Decimal(7, 2)
+  largeur_feuillard Decimal?  @db.Decimal(7, 2)
+  matiere           Matiere
+  durete            String    @db.VarChar(20)
+  revetement        String    @db.VarChar(20)
+  date_reception    DateTime  @db.Date
+  
+  bobines           Bobine[]
+  
+  @@unique([code_fournisseur, num_commande, num_type_produit])
+  @@map("receptions")
+}
+
+model Bobine {
+  id              Int         @id @default(autoincrement())
+  reception_id    Int
+  code_bobine     String      @unique @db.VarChar(15)
+  num_bobine      Int
+  poids_initial   Decimal     @db.Decimal(7, 2)
+  poids_actuel    Decimal     @db.Decimal(7, 2)
+  statut          Statut      @default(EN_STOCK)
+  
+  reception       Reception   @relation(fields: [reception_id], references: [id])
+  mouvements      Mouvement[]
+  
+  @@map("bobines")
+}
+
+model Mouvement {
+  id                Int             @id @default(autoincrement())
+  bobine_id         Int
+  type_mouvement    TypeMouvement
+  poids_mouvement   Decimal         @db.Decimal(7, 2)
+  n_commande_client String?         @db.VarChar(50)
+  client            String?         @db.VarChar(100)
+  texte_libre       String?
+  date_mouvement    DateTime        @default(now())
+  
+  bobine            Bobine          @relation(fields: [bobine_id], references: [id])
+  
+  @@map("mouvements")
+}
+
+enum TypeMateriel {
+  Fil
+  Feuillard
+}
+
+enum Matiere {
+  Acier
+  Inox
+  Bronze
+  Cuivre
+}
+
+enum Statut {
+  EN_STOCK
+  PARTIELLE
+  VIDE
+  DECHET
+}
+
+enum TypeMouvement {
+  ENTREE_FOURNISSEUR
+  SORTIE_USINE
+  RETOUR_USINE
+  SORTIE_DECHET
+}
