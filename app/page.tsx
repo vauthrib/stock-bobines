@@ -85,6 +85,11 @@ export default function Home() {
 
   const [backupFile, setBackupFile] = useState<File | null>(null)
 
+  // États pour l'édition de lots
+  const [showEditLot, setShowEditLot] = useState(false)
+  const [lots, setLots] = useState<any[]>([])
+  const [editingLot, setEditingLot] = useState<any>(null)
+
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
 
   const getBaseUrl = () => {
@@ -134,6 +139,16 @@ export default function Home() {
       setItemsMatiere(await matRes.json())
       setItemsDurete(await durRes.json())
       setItemsRev(await revRes.json())
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const chargerLots = async () => {
+    try {
+      const res = await fetch('/api/lots')
+      const data = await res.json()
+      setLots(data)
     } catch (error) {
       console.error(error)
     }
@@ -203,6 +218,78 @@ export default function Home() {
     } catch (error) {
       alert('❌ Erreur lors de l\'import')
     }
+  }
+
+  const handleEditLot = async (lotId: number) => {
+    try {
+      const res = await fetch(`/api/lots/${lotId}`)
+      const data = await res.json()
+      setEditingLot(data)
+      setShowEditLot(true)
+    } catch (error) {
+      alert('❌ Erreur de chargement du lot')
+    }
+  }
+
+  const handleSaveLot = async () => {
+    if (!editingLot) return
+
+    try {
+      const res = await fetch(`/api/lots/${editingLot.id}/update`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingLot)
+      })
+
+      if (res.ok) {
+        alert('✅ Lot mis à jour avec succès')
+        setShowEditLot(false)
+        setEditingLot(null)
+        chargerBobines()
+        chargerLots()
+      } else {
+        const error = await res.json()
+        alert(`❌ ${error.error}`)
+      }
+    } catch (error) {
+      alert('❌ Erreur de sauvegarde')
+    }
+  }
+
+  const handleAddBobine = () => {
+    if (!editingLot) return
+    const newBobine = {
+      id: 0,
+      code_bobine: '',
+      num_bobine: editingLot.bobines.length + 1,
+      poids_initial: '0',
+      poids_actuel: '0',
+      statut: 'EN_STOCK',
+      lieu: 'STOCK_PRINCIPAL',
+      num_commande_fabrication: ''
+    }
+    setEditingLot({
+      ...editingLot,
+      bobines: [...editingLot.bobines, newBobine]
+    })
+  }
+
+  const handleRemoveBobine = (index: number) => {
+    if (!editingLot) return
+    if (!confirm('Supprimer cette bobine ? Tous ses mouvements seront aussi supprimés.')) return
+    
+    const newBobines = editingLot.bobines.filter((_, i) => i !== index)
+    setEditingLot({
+      ...editingLot,
+      bobines: newBobines
+    })
+  }
+
+  const handleUpdateBobine = (index: number, field: string, value: any) => {
+    if (!editingLot) return
+    const newBobines = [...editingLot.bobines]
+    newBobines[index] = { ...newBobines[index], [field]: value }
+    setEditingLot({ ...editingLot, bobines: newBobines })
   }
 
   const handleEtape1 = (e: React.FormEvent<HTMLFormElement>) => {
@@ -318,7 +405,6 @@ export default function Home() {
   const handleVersUsine = async () => {
     if (!selectedBobine) return
     
-    // Vérifier si déjà en usine
     if (selectedBobine.lieu === 'USINE') {
       alert('⚠️ Cette bobine est déjà en usine')
       return
@@ -350,7 +436,6 @@ export default function Home() {
   const handleRetourUsine = async () => {
     if (!selectedBobine) return
     
-    // Vérifier si pas en usine
     if (selectedBobine.lieu !== 'USINE') {
       alert('⚠️ Cette bobine n\'est pas en usine')
       return
@@ -465,6 +550,209 @@ export default function Home() {
       const diamB = matchB ? parseFloat(matchB[1]) : 9999
       return diamA - diamB
     })
+
+  // ============ MODAL ÉDITION LOT ============
+  if (showEditLot && editingLot) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-6xl mx-auto bg-white rounded-lg shadow-lg p-8">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-2xl font-bold text-orange-900">✏️ Éditer le lot</h1>
+            <button onClick={() => {
+              setShowEditLot(false)
+              setEditingLot(null)
+            }} className="text-red-600 hover:text-red-800">✕</button>
+          </div>
+
+          <div className="mb-6 bg-orange-50 border border-orange-200 rounded-md p-4">
+            <h2 className="text-lg font-semibold mb-3">Informations du lot</h2>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Code Fournisseur</label>
+                <input type="text" value={editingLot.code_fournisseur}
+                  onChange={(e) => setEditingLot({ ...editingLot, code_fournisseur: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border rounded-md uppercase" maxLength={4} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">N° Commande</label>
+                <input type="text" value={editingLot.num_commande}
+                  onChange={(e) => setEditingLot({ ...editingLot, num_commande: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md" maxLength={2} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">N° Type Produit</label>
+                <input type="text" value={editingLot.num_type_produit}
+                  onChange={(e) => setEditingLot({ ...editingLot, num_type_produit: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md" maxLength={2} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Type</label>
+                <select value={editingLot.type_materiel}
+                  onChange={(e) => setEditingLot({ ...editingLot, type_materiel: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md">
+                  <option value="Fil">Fil</option>
+                  <option value="Feuillard">Feuillard</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Date réception</label>
+                <input type="date" value={editingLot.date_reception.split('T')[0]}
+                  onChange={(e) => setEditingLot({ ...editingLot, date_reception: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md" />
+              </div>
+            </div>
+
+            {editingLot.type_materiel === 'Fil' ? (
+              <div className="mt-4">
+                <label className="block text-sm font-medium mb-1">Diamètre (mm)</label>
+                <input type="number" step="0.01" value={editingLot.diametre_fil || ''}
+                  onChange={(e) => setEditingLot({ ...editingLot, diametre_fil: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Largeur (mm)</label>
+                  <input type="number" step="0.01" value={editingLot.largeur_feuillard || ''}
+                    onChange={(e) => setEditingLot({ ...editingLot, largeur_feuillard: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-md" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Longueur (mm)</label>
+                  <input type="number" step="0.01" value={editingLot.longueur_feuillard || ''}
+                    onChange={(e) => setEditingLot({ ...editingLot, longueur_feuillard: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-md" />
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Matière</label>
+                <select value={editingLot.matiere}
+                  onChange={(e) => setEditingLot({ ...editingLot, matiere: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md">
+                  {itemsMatiere.map(item => (
+                    <option key={item.id} value={item.nom}>{item.nom}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Dureté</label>
+                <select value={editingLot.durete}
+                  onChange={(e) => setEditingLot({ ...editingLot, durete: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md">
+                  {itemsDurete.map(item => (
+                    <option key={item.id} value={item.nom}>{item.nom}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Revêtement</label>
+                <select value={editingLot.revetement}
+                  onChange={(e) => setEditingLot({ ...editingLot, revetement: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md">
+                  {itemsRev.map(item => (
+                    <option key={item.id} value={item.nom}>{item.nom}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-lg font-semibold">Bobines ({editingLot.bobines.length})</h2>
+              <button onClick={handleAddBobine}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm">
+                ➕ Ajouter une bobine
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {editingLot.bobines.map((bobine: any, index: number) => (
+                <div key={index} className="border rounded-md p-4 bg-gray-50">
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="font-semibold text-sm">Bobine {index + 1}</h3>
+                    <button onClick={() => handleRemoveBobine(index)}
+                      className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">
+                      🗑️ Supprimer
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Poids initial (kg)</label>
+                      <input type="number" step="0.01" value={bobine.poids_initial}
+                        onChange={(e) => handleUpdateBobine(index, 'poids_initial', e.target.value)}
+                        className="w-full px-2 py-1 border rounded text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Poids actuel (kg)</label>
+                      <input type="number" step="0.01" value={bobine.poids_actuel}
+                        onChange={(e) => handleUpdateBobine(index, 'poids_actuel', e.target.value)}
+                        className="w-full px-2 py-1 border rounded text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Statut</label>
+                      <select value={bobine.statut}
+                        onChange={(e) => handleUpdateBobine(index, 'statut', e.target.value)}
+                        className="w-full px-2 py-1 border rounded text-sm">
+                        <option value="EN_STOCK">En stock</option>
+                        <option value="PARTIELLE">Partielle</option>
+                        <option value="VIDE">Vide</option>
+                        <option value="DECHET">Déchet</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Lieu</label>
+                      <select value={bobine.lieu}
+                        onChange={(e) => handleUpdateBobine(index, 'lieu', e.target.value)}
+                        className="w-full px-2 py-1 border rounded text-sm">
+                        <option value="STOCK_PRINCIPAL">Stock Principal</option>
+                        <option value="USINE">Usine</option>
+                        <option value="DECHET">Déchet</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">N° Commande Fabrication</label>
+                      <input type="text" value={bobine.num_commande_fabrication || ''}
+                        onChange={(e) => handleUpdateBobine(index, 'num_commande_fabrication', e.target.value)}
+                        className="w-full px-2 py-1 border rounded text-sm" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => {
+              setShowEditLot(false)
+              setEditingLot(null)
+            }} className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-3 rounded-md">
+              Annuler
+            </button>
+            <button onClick={handleSaveLot}
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-md">
+              ✓ Sauvegarder les modifications
+            </button>
+          </div>
+
+          <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm text-yellow-800">
+            ⚠️ <strong>Attention :</strong> La modification du code du lot renomme automatiquement toutes les bobines. 
+            La suppression d'une bobine efface aussi tout son historique de mouvements.
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // ============ PAGE PRINCIPALE ============
   if (currentPage === 'home') {
@@ -1026,11 +1314,55 @@ export default function Home() {
             }} className="text-red-600 hover:text-red-800">✕</button>
           </div>
 
+          {/* Gestion des items */}
           <div className="mb-8 border-b pb-6">
             <h2 className="text-lg font-semibold mb-4">📝 Gestion des items</h2>
             <ItemsManager onItemsChange={chargerItems} />
           </div>
 
+          {/* Gestion des lots */}
+          <div className="mb-8 border-b pb-6">
+            <h2 className="text-lg font-semibold mb-4">📦 Gestion des lots</h2>
+            <button onClick={chargerLots} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md mb-4">
+              🔄 Charger les lots
+            </button>
+            
+            {lots.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Code Lot</th>
+                      <th className="px-3 py-2 text-left">Fournisseur</th>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-right">Nb bobines</th>
+                      <th className="px-3 py-2 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lots.map(lot => (
+                      <tr key={lot.id} className="border-b hover:bg-gray-50">
+                        <td className="px-3 py-2 font-mono font-semibold">
+                          {lot.code_fournisseur}{lot.num_commande}{lot.num_type_produit}
+                        </td>
+                        <td className="px-3 py-2">{lot.code_fournisseur}</td>
+                        <td className="px-3 py-2">{new Date(lot.date_reception).toLocaleDateString('fr-FR')}</td>
+                        <td className="px-3 py-2 text-right">{lot.bobines.length}</td>
+                        <td className="px-3 py-2 text-center">
+                          <button onClick={() => handleEditLot(lot.id)}
+                            className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-xs">
+                            ✏️ Éditer
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Code d'accès mobile */}
           <div className="mb-8 border-b pb-6">
             <h2 className="text-lg font-semibold mb-4">🔐 Code d'accès mobile</h2>
             <p className="text-sm text-gray-600 mb-3">Ce code est utilisé pour accéder aux infos des bobines depuis un smartphone (via QR code).</p>
@@ -1040,6 +1372,7 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Exports CSV */}
           <div className="border-b pb-4 mb-4">
             <h2 className="text-lg font-semibold mb-2">📊 Exports CSV</h2>
             <div className="flex gap-2 flex-wrap">
@@ -1048,6 +1381,7 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Stats par commande */}
           <div className="border-b pb-4 mb-4">
             <h2 className="text-lg font-semibold mb-2">📈 Stats par commande</h2>
             <div className="flex gap-2">
@@ -1056,6 +1390,7 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Consommation */}
           <div className="border-b pb-4 mb-4">
             <h2 className="text-lg font-semibold mb-2">📉 Consommation</h2>
             <div className="flex gap-2 items-center">
@@ -1065,6 +1400,7 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Backup CSV unifié */}
           <div className="border-b pb-4 mb-4">
             <h2 className="text-lg font-semibold mb-2">💾 Backup complet de la base</h2>
             <div className="mb-4">
@@ -1084,6 +1420,7 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Reset */}
           <div className="pt-4">
             <button onClick={handleReset} className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-md">⚠️ Réinitialiser base de données</button>
           </div>
