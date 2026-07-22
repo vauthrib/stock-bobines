@@ -390,22 +390,38 @@ export default function Home() {
   // --- Memoized Etat ---
   const etatFiltre = useMemo(() => {
     let filtered = bobines.filter(b => b.lieu === 'STOCK_PRINCIPAL')
+    
+    // Filtre par lot
     if (lotFilter !== 'all') {
       const [f, c, t] = lotFilter.split('-')
       filtered = filtered.filter(b => b.reception.code_fournisseur === f && b.reception.num_commande === c && b.reception.num_type_produit === t)
     }
+    
+    // Filtre par diamètre
     if (diametreFilter) {
       filtered = filtered.filter(b => b.reception.diametre_fil?.toString() === diametreFilter)
     }
+
+    // Fonction pour extraire le diamètre sous forme de nombre
+    const getDiam = (dim: string) => {
+      const m = dim.match(/Ø?([\d.]+)/)
+      return m ? parseFloat(m[1]) : 9999
+    }
+
+    // Regrouper et sommer
     const grouped = filtered.reduce((acc, b) => {
       const dim = b.reception.type_materiel === 'Fil' ? `Ø${b.reception.diametre_fil}` : `${b.reception.largeur_feuillard}x${b.reception.longueur_feuillard}`
       const key = `${dim}-${b.reception.durete}-${b.reception.revetement}`
       if (!acc[key]) acc[key] = { dimension: dim, durete: b.reception.durete, revetement: b.reception.revetement, nb: 0, poids: 0 }
-      acc[key].nb++; acc[key].poids += parseFloat(b.poids_actuel); return acc
+      acc[key].nb++
+      acc[key].poids += parseFloat(b.poids_actuel)
+      return acc
     }, {} as Record<string, { dimension: string, durete: string, revetement: string, nb: number, poids: number }>)
-    return Object.values(grouped).sort((a, b) => (a.dimension.match(/Ø?([\d.]+)/)?.[1] || 9999) - (b.dimension.match(/Ø?([\d.]+)/)?.[1] || 9999))
-  }, [bobines, lotFilter, diametreFilter])
 
+    // Trier par diamètre (maintenant valide en TS)
+    return Object.values(grouped).sort((a, b) => getDiam(a.dimension) - getDiam(b.dimension))
+  }, [bobines, lotFilter, diametreFilter])
+  
   const totalPoidsEtat = etatFiltre.reduce((s, i) => s + i.poids, 0)
   const totalNbEtat = etatFiltre.reduce((s, i) => s + i.nb, 0)
 
