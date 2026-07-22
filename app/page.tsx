@@ -245,7 +245,17 @@ export default function Home() {
       if (res.ok) { alert('✅ Rebut'); setCurrentPage('autre'); setAutreSection('actions'); setSelectedBobine(null); chargerBobines() }
     } catch (e) { alert('❌ Erreur') }
   }
-
+  
+  const handleEditLot = async (lotId: number) => {
+    try {
+      const res = await fetch(`/api/lots/${lotId}`)
+      const data = await res.json()
+      setEditingLot(data)
+      setShowEditLot(true)
+    } catch (error) {
+      alert('❌ Erreur de chargement du lot')
+    }
+  }
   const lotsDisponibles = bobines.reduce((acc, b) => {
     const k = `${b.reception.code_fournisseur}-${b.reception.num_commande}-${b.reception.num_type_produit}`
     if (!acc[k]) acc[k] = { id: k, code_fournisseur: b.reception.code_fournisseur, num_commande: b.reception.num_commande, num_type_produit: b.reception.num_type_produit, nom: `${b.reception.code_fournisseur}${b.reception.num_commande}${b.reception.num_type_produit}`, nb_bobines: 0 }
