@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Html5QrcodeScanner } from 'html5-qrcode'
 import { QRCodeSVG } from 'qrcode.react'
 
@@ -46,7 +46,6 @@ type ReceptionData = {
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'backup' | 'reset'
 
 export default function Home() {
-  // Authentification
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [currentUser, setCurrentUser] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
@@ -56,7 +55,6 @@ export default function Home() {
   const [authError, setAuthError] = useState('')
 
   const [bobines, setBobines] = useState<Bobine[]>([])
-  const [etatResume, setEtatResume] = useState<any[]>([])
   const [currentPage, setCurrentPage] = useState<'home' | 'arrivage' | 'usine' | 'retour_usine' | 'retour' | 'etat' | 'autre'>('home')
 
   const [wizardStep, setWizardStep] = useState(1)
@@ -77,6 +75,7 @@ export default function Home() {
   const [moisConso, setMoisConso] = useState(3)
   const [commandeFilter, setCommandeFilter] = useState('')
   const [diametreFilter, setDiametreFilter] = useState<string>('')
+  const [lotFilter, setLotFilter] = useState<string>('all') // Nouveau filtre par lot
   const [filtreDiametreUsine, setFiltreDiametreUsine] = useState<string>('')
   const [rechercheNomUsine, setRechercheNomUsine] = useState('')
 
@@ -105,12 +104,8 @@ export default function Home() {
       try {
         const { user, date, isAdmin: admin = false, isSuper: superUser = false } = JSON.parse(authData)
         if (date === new Date().toDateString()) {
-          setIsAuthenticated(true)
-          setCurrentUser(user)
-          setIsAdmin(admin)
-          setIsSuper(superUser)
-          chargerBobines()
-          chargerItems()
+          setIsAuthenticated(true); setCurrentUser(user); setIsAdmin(admin); setIsSuper(superUser)
+          chargerBobines(); chargerItems()
           return
         }
       } catch (e) { localStorage.removeItem('app_auth') }
@@ -119,9 +114,6 @@ export default function Home() {
 
   const chargerBobines = async () => {
     try { const res = await fetch('/api/bobines'); setBobines(await res.json()) } catch (e) { console.error(e) }
-  }
-  const chargerEtat = async () => {
-    try { const res = await fetch('/api/etat'); setEtatResume(await res.json()) } catch (e) { console.error(e) }
   }
   const chargerItems = async () => {
     try {
@@ -245,17 +237,7 @@ export default function Home() {
       if (res.ok) { alert('✅ Rebut'); setCurrentPage('autre'); setAutreSection('actions'); setSelectedBobine(null); chargerBobines() }
     } catch (e) { alert('❌ Erreur') }
   }
-  
-  const handleEditLot = async (lotId: number) => {
-    try {
-      const res = await fetch(`/api/lots/${lotId}`)
-      const data = await res.json()
-      setEditingLot(data)
-      setShowEditLot(true)
-    } catch (error) {
-      alert('❌ Erreur de chargement du lot')
-    }
-  }
+
   const lotsDisponibles = bobines.reduce((acc, b) => {
     const k = `${b.reception.code_fournisseur}-${b.reception.num_commande}-${b.reception.num_type_produit}`
     if (!acc[k]) acc[k] = { id: k, code_fournisseur: b.reception.code_fournisseur, num_commande: b.reception.num_commande, num_type_produit: b.reception.num_type_produit, nom: `${b.reception.code_fournisseur}${b.reception.num_commande}${b.reception.num_type_produit}`, nb_bobines: 0 }
@@ -271,8 +253,38 @@ export default function Home() {
     window.open(url, '_blank')
   }
 
-  const diametresDisponibles = Array.from(new Set(bobines.filter(b => b.lieu === 'STOCK_PRINCIPAL' && b.reception.type_materiel === 'Fil' && b.reception.diametre_fil).map(b => parseFloat(b.reception.diametre_fil!)))).sort((a, b) => a - b)
-  const etatFiltre = etatResume.filter(i => !diametreFilter || (i.dimension.match(/Ø?([\d.]+)/)?.[1] === diametreFilter)).sort((a, b) => (a.dimension.match(/Ø?([\d.]+)/)?.[1] || 9999) - (b.dimension.match(/Ø?([\d.]+)/)?.[1] || 9999))
+  // Calcul local de l'état du stock (remplace l'appel API pour plus de réactivité)
+  const etatFiltre = useMemo(() => {
+    let filtered = bobines.filter(b => b.lieu === 'STOCK_PRINCIPAL')
+    
+    // Filtre par lot
+    if (lotFilter !== 'all') {
+      const [f, c, t] = lotFilter.split('-')
+      filtered = filtered.filter(b => b.reception.code_fournisseur === f && b.reception.num_commande === c && b.reception.num_type_produit === t)
+    }
+    
+    // Filtre par diamètre
+    if (diametreFilter) {
+      filtered = filtered.filter(b => b.reception.diametre_fil?.toString() === diametreFilter)
+    }
+
+    const grouped = filtered.reduce((acc, b) => {
+      const dim = b.reception.type_materiel === 'Fil' ? `Ø${b.reception.diametre_fil}` : `${b.reception.largeur_feuillard}x${b.reception.longueur_feuillard}`
+      const key = `${dim}-${b.reception.durete}-${b.reception.revetement}`
+      if (!acc[key]) acc[key] = { dimension: dim, durete: b.reception.durete, revetement: b.reception.revetement, nb: 0, poids: 0 }
+      acc[key].nb++
+      acc[key].poids += parseFloat(b.poids_actuel)
+      return acc
+    }, {} as Record<string, { dimension: string, durete: string, revetement: string, nb: number, poids: number }>)
+
+    return Object.values(grouped).sort((a, b) => {
+      const mA = a.dimension.match(/Ø?([\d.]+)/); const mB = b.dimension.match(/Ø?([\d.]+)/)
+      return (mA ? parseFloat(mA[1]) : 9999) - (mB ? parseFloat(mB[1]) : 9999)
+    })
+  }, [bobines, lotFilter, diametreFilter])
+
+  const totalPoidsEtat = etatFiltre.reduce((s, i) => s + i.poids, 0)
+  const totalNbEtat = etatFiltre.reduce((s, i) => s + i.nb, 0)
 
   // ============ LOGIN ============
   if (!isAuthenticated) {
@@ -375,8 +387,6 @@ export default function Home() {
             <div><h1 className="text-2xl font-bold">🔐 Administration</h1><p className="text-sm text-gray-600">Super Admin : {currentUser}</p></div>
             <button onClick={() => { setCurrentPage('home'); setAutreSection('actions') }} className="bg-gray-600 text-white px-4 py-2 rounded-lg">← Accueil</button>
           </div>
-
-          {/* ACTIONS RAPIDES */}
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
             <h2 className="text-xl font-bold mb-4">⚡ Actions rapides</h2>
             <div className="grid grid-cols-2 gap-4">
@@ -386,8 +396,6 @@ export default function Home() {
               <button onClick={() => setCurrentPage('retour')} className="bg-red-600 hover:bg-red-700 text-white font-bold py-6 rounded-xl text-lg shadow">🗑️ Retour</button>
             </div>
           </div>
-
-          {/* ONGLETS ADMIN */}
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="flex border-b overflow-x-auto">
               {['actions','items','lots','users','history','backup','reset'].map(s => (
@@ -440,7 +448,26 @@ export default function Home() {
   }
 
   if (currentPage === 'etat') {
-    return (<div className="min-h-screen bg-gray-50 p-6"><div className="max-w-5xl mx-auto bg-white rounded-lg shadow-lg p-8"><div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold text-green-900">📊 État du stock</h1><button onClick={()=>setCurrentPage('home')} className="text-red-600">✕</button></div><div className="mb-6 bg-blue-50 border rounded-md p-4"><label className="block text-sm font-medium mb-2">Filtrer par diamètre</label><div className="flex flex-wrap gap-2"><button onClick={()=>setDiametreFilter('')} className={`px-4 py-2 rounded-md text-sm ${!diametreFilter?'bg-blue-600 text-white':'bg-white border'}`}>Tous</button>{diametresDisponibles.map(d=>(<button key={d} onClick={()=>setDiametreFilter(d.toString())} className={`px-4 py-2 rounded-md text-sm ${diametreFilter===d.toString()?'bg-blue-600 text-white':'bg-white border'}`}>Ø {d} mm</button>))}</div></div><div className="mb-6 bg-purple-50 border rounded-md p-4"><label className="block text-sm font-medium mb-2">Imprimer étiquettes d'un lot</label><div className="flex flex-wrap gap-2">{Object.values(lotsDisponibles).map((l:any)=>(<button key={l.id} onClick={()=>handleImprimerLot(l.id)} className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm">{l.nom} ({l.nb_bobines})</button>))}</div></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th></tr></thead><tbody>{etatFiltre.length===0?<tr><td colSpan={5} className="text-center py-4 text-gray-500">Aucune donnée</td></tr>:etatFiltre.map((i,idx)=>(<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className="px-3 py-2">{i.durete}</td><td className="px-3 py-2">{i.revetement}</td><td className="px-3 py-2 text-right">{i.nombre_bobines}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids_total.toFixed(2)} kg</td></tr>))}</tbody></table></div></div></div>)
+    return (<div className="min-h-screen bg-gray-50 p-6"><div className="max-w-5xl mx-auto bg-white rounded-lg shadow-lg p-8"><div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold text-green-900">📊 État du stock</h1><button onClick={()=>setCurrentPage('home')} className="text-red-600">✕</button></div>
+      <div className="flex flex-wrap gap-4 mb-6">
+        <div className="bg-blue-50 border rounded-md p-4 flex-1">
+          <label className="block text-sm font-medium mb-2">Filtrer par diamètre</label>
+          <div className="flex flex-wrap gap-2"><button onClick={()=>setDiametreFilter('')} className={`px-4 py-2 rounded-md text-sm ${!diametreFilter?'bg-blue-600 text-white':'bg-white border'}`}>Tous</button>{diametresDisponibles.map(d=>(<button key={d} onClick={()=>setDiametreFilter(d.toString())} className={`px-4 py-2 rounded-md text-sm ${diametreFilter===d.toString()?'bg-blue-600 text-white':'bg-white border'}`}>Ø {d} mm</button>))}</div>
+        </div>
+        <div className="bg-purple-50 border rounded-md p-4 flex-1">
+          <label className="block text-sm font-medium mb-2">Filtrer par lot</label>
+          <select value={lotFilter} onChange={e=>setLotFilter(e.target.value)} className="w-full px-3 py-2 border rounded-md">
+            <option value="all">Tous les lots</option>
+            {Object.values(lotsDisponibles).map((l:any)=>(<option key={l.id} value={l.id}>{l.nom} ({l.nb_bobines} bobines)</option>))}
+          </select>
+        </div>
+      </div>
+      <div className="bg-green-50 border border-green-200 rounded-md p-3 mb-4 flex justify-between items-center">
+        <span className="font-semibold text-green-900">📦 Total affiché :</span>
+        <span className="text-green-800 font-bold text-lg">{totalPoidsEtat.toFixed(2)} kg <span className="text-sm font-normal text-green-700">({totalNbEtat} bobines)</span></span>
+      </div>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th></tr></thead><tbody>{etatFiltre.length===0?<tr><td colSpan={5} className="text-center py-4 text-gray-500">Aucune donnée</td></tr>:etatFiltre.map((i,idx)=>(<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className="px-3 py-2">{i.durete}</td><td className="px-3 py-2">{i.revetement}</td><td className="px-3 py-2 text-right">{i.nb}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids.toFixed(2)} kg</td></tr>))}</tbody></table></div>
+    </div></div>)
   }
 
   return null
