@@ -610,26 +610,6 @@ export default function Home() {
       alert('⚠️ Cette bobine n\'est pas en usine')
       return
     }
-
-    const poids = parseFloat(poidsRestant)
-    const poidsInitial = parseFloat(selectedBobine.poids_initial)
-
-    // CAS 1 : Poids = 0 → bobine finie
-    if (poids === 0) {
-      if (!confirm('⚠️ Confirmer que la bobine est terminée ? Elle sera marquée comme déchet et sortira du stock.')) {
-        return
-      }
-    }
-    // CAS 2 : Poids invalide
-    else if (isNaN(poids) || poids < 0) {
-      alert('Veuillez saisir un poids valide (≥ 0)')
-      return
-    }
-    // CAS 3 : Poids > poids initial
-    else if (poids > poidsInitial) {
-      alert(`❌ Le poids ne peut pas dépasser le poids initial (${poidsInitial} kg)`)
-      return
-    }
     
     try {
       const res = await fetch('/api/mouvements', {
@@ -638,18 +618,12 @@ export default function Home() {
         body: JSON.stringify({
           code_bobine: selectedBobine.code_bobine,
           type_mouvement: 'RETOUR_USINE',
-          poids_mouvement: poids,
+          poids_mouvement: parseFloat(poidsRestant),
           lieu_destination: 'STOCK_PRINCIPAL'
         })
       })
       if (res.ok) {
-        if (poids === 0) {
-          alert('✅ Bobine terminée - sortie du stock')
-        } else if (poids >= poidsInitial) {
-          alert('✅ Retour stock principal (poids inchangé)')
-        } else {
-          alert('✅ Retour stock principal')
-        }
+        alert('✅ Retour stock principal')
         setCurrentPage('home')
         setSelectedBobine(null)
         setPoidsRestant('')
@@ -1434,10 +1408,7 @@ export default function Home() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Poids restant (kg)</label>
-                <input type="number" step="0.01" value={poidsRestant} onChange={(e) => setPoidsRestant(e.target.value)} className="w-full px-4 py-2 border rounded-md" placeholder="0 = terminée" />
-				<p className="text-xs text-gray-500 mt-1">
-					0 kg = bobine terminée (sort du stock) · Poids identique = retour sans consommation
-				</p>
+                <input type="number" step="0.01" value={poidsRestant} onChange={(e) => setPoidsRestant(e.target.value)} className="w-full px-4 py-2 border rounded-md" placeholder="15.5" />
               </div>
               <button onClick={handleRetourUsine} className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded-md">✓ Valider (retour stock principal)</button>
             </div>

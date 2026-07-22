@@ -6,7 +6,8 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
     
     const bobine = await prisma.bobine.findUnique({
-      where: { code_bobine: data.code_bobine.toUpperCase() }
+      where: { code_bobine: data.code_bobine.toUpperCase() },
+      include: { reception: true }
     })
 
     if (!bobine) {
@@ -16,33 +17,54 @@ export async function POST(request: NextRequest) {
     let nouveauPoids = parseFloat(bobine.poids_actuel.toString())
     let nouveauLieu = bobine.lieu
     let nouveauStatut = bobine.statut
-    const poidsMouvement = parseFloat(data.poids_mouvement)
+    const poidsMouvement = parseFloat(data.poids_mouvement) || 0
+    const poidsInitial = parseFloat(bobine.poids_initial.toString())
 
     // Logique selon le type de mouvement
     if (data.type_mouvement === 'TRANSFERT_VERS_USINE') {
-      // La bobine part entière vers l'usine
+      if (bobine.lieu === 'USINE') {
+        return NextResponse.json({ error: 'Cette bobine est déjà en usine' }, { status: 400 })
+      }
       nouveauLieu = 'USINE'
       nouveauStatut = 'EN_STOCK'
     } 
     else if (data.type_mouvement === 'RETOUR_USINE') {
-      // Retour d'usine avec nouveau poids
-      nouveauPoids = poidsMouvement
-      nouveauLieu = data.lieu_destination || 'STOCK_PRINCIPAL'
-      
-      if (nouveauPoids <= 0) {
-        nouveauStatut = 'VIDE'
-      } else if (nouveauPoids < parseFloat(bobine.poids_initial.toString())) {
-        nouveauStatut = 'PARTIELLE'
-      } else {
-        nouveauStatut = 'EN_STOCK'
+      if (bobine.lieu !== 'USINE') {
+        return NextResponse.json({ error: 'Cette bobine n\'est pas en usine' }, { status: 400 })
       }
-    }
-    else if (data.type_mouvement === 'SORTIE_DECHET') {
-      nouveauPoids -= poidsMouvement
-      if (nouveauPoids <= 0) {
+      
+      // CAS 1 : Poids = 0 → bobine finie, sort du stock
+      if (poidsMouvement === 0) {
+        nouveauPoids = 0
         nouveauStatut = 'DECHET'
         nouveauLieu = 'DECHET'
       }
+      // CAS 2 : Poids = poids initial → retour sans consommation (erreur ou prod annulée)
+      else if (poidsMouvement >= poidsInitial) {
+        nouveauPoids = poidsInitial
+        nouveauLieu = data.lieu_destination || 'STOCK_PRINCIPAL'
+        nouveauStatut = 'EN_STOCK'
+      }
+      // CAS 3 : Poids < poids initial → retour normal avec consommation
+      else {
+        nouveauPoids = poidsMouvement
+        nouveauLieu = data.lieu_destination || 'STOCK_PRINCIPAL'
+        if (nouveauPoids <= 0) {
+          nouveauStatut = 'VIDE'
+        } else {
+          nouveauStatut = 'PARTIELLE'
+        }
+      }
+    }
+    else if (data.type_mouvement === 'SORTIE_DECHET') {
+      nouveauPoids = 0
+      nouveauStatut = 'DECHET'
+      nouveauLieu = 'DECHET'
+    }
+    else if (data.type_mouvement === 'ENTREE_FOURNISSEUR') {
+      nouveauPoids = poidsMouvement
+      nouveauStatut = 'EN_STOCK'
+      nouveauLieu = 'STOCK_PRINCIPAL'
     }
 
     // Mettre à jour la bobine
@@ -52,7 +74,9 @@ export async function POST(request: NextRequest) {
         poids_actuel: nouveauPoids,
         statut: nouveauStatut,
         lieu: nouveauLieu,
-        num_commande_fabrication: data.num_commande_fabrication || bobine.num_commande_fabrication
+        num_commande_fabrication: data.num_commande_fabrication !== undefined 
+          ? data.num_commande_fabrication 
+          : bobine.num_commande_fabrication
       }
     })
 

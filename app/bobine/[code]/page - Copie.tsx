@@ -166,20 +166,13 @@ export default function BobinePage() {
     const poids = parseFloat(poidsRestant)
     const poidsInitial = parseFloat(bobine?.poids_initial || '0')
 
-    // CAS 1 : Poids = 0 → bobine finie
-    if (poids === 0) {
-      if (!confirm('⚠️ Confirmer que la bobine est terminée ? Elle sera marquée comme déchet et sortira du stock.')) {
-        return
-      }
-    }
-    // CAS 2 : Poids invalide (négatif)
-    else if (isNaN(poids) || poids < 0) {
-      alert('Veuillez saisir un poids valide (≥ 0)')
+    if (isNaN(poids) || poids <= 0) {
+      alert('Veuillez saisir un poids valide')
       return
     }
-    // CAS 3 : Poids > poids initial
-    else if (poids > poidsInitial) {
-      alert(`❌ Le poids ne peut pas dépasser le poids initial (${poidsInitial} kg)`)
+
+    if (poids >= poidsInitial) {
+      alert(`❌ Le poids doit être inférieur au poids initial (${poidsInitial} kg)`)
       return
     }
 
@@ -197,13 +190,7 @@ export default function BobinePage() {
       })
 
       if (res.ok) {
-        if (poids === 0) {
-          alert('✅ Bobine terminée - sortie du stock')
-        } else if (poids >= poidsInitial) {
-          alert('✅ Retour stock principal (poids inchangé)')
-        } else {
-          alert('✅ Bobine retournée au stock principal')
-        }
+        alert('✅ Bobine retournée au stock principal')
         setShowAction(null)
         setPoidsRestant('')
         chargerBobine()
@@ -495,10 +482,8 @@ export default function BobinePage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Poids restant de la bobine (kg)</label>
                 <input type="number" step="0.01" value={poidsRestant} onChange={(e) => setPoidsRestant(e.target.value)} className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none" placeholder="15.5" autoFocus />
-                <p className="text-xs text-gray-500 mt-1">
-					0 kg = bobine terminée (sort du stock) · Poids identique = retour sans consommation
-				</p>
-			  </div>
+                <p className="text-xs text-gray-500 mt-1">Doit être inférieur à {bobine.poids_initial} kg</p>
+              </div>
               <div className="flex gap-2">
                 <button onClick={() => setShowAction(null)} className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-3 rounded-lg">Annuler</button>
                 <button onClick={handleVersStock} disabled={actionLoading} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg disabled:opacity-50">{actionLoading ? '...' : 'Valider'}</button>
