@@ -1,3 +1,4 @@
+
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
@@ -387,41 +388,41 @@ export default function Home() {
     window.open(url, '_blank')
   }
 
+  // --- Diamètres disponibles (Global) ---
+  const diametresDisponibles = useMemo(() => {
+    return Array.from(new Set(
+      bobines
+        .filter(b => b.lieu === 'STOCK_PRINCIPAL' && b.reception.type_materiel === 'Fil' && b.reception.diametre_fil)
+        .map(b => parseFloat(b.reception.diametre_fil!))
+    )).sort((a, b) => a - b)
+  }, [bobines])
+
   // --- Memoized Etat ---
   const etatFiltre = useMemo(() => {
     let filtered = bobines.filter(b => b.lieu === 'STOCK_PRINCIPAL')
-    
-    // Filtre par lot
     if (lotFilter !== 'all') {
       const [f, c, t] = lotFilter.split('-')
       filtered = filtered.filter(b => b.reception.code_fournisseur === f && b.reception.num_commande === c && b.reception.num_type_produit === t)
     }
-    
-    // Filtre par diamètre
     if (diametreFilter) {
       filtered = filtered.filter(b => b.reception.diametre_fil?.toString() === diametreFilter)
     }
 
-    // Fonction pour extraire le diamètre sous forme de nombre
     const getDiam = (dim: string) => {
       const m = dim.match(/Ø?([\d.]+)/)
       return m ? parseFloat(m[1]) : 9999
     }
 
-    // Regrouper et sommer
     const grouped = filtered.reduce((acc, b) => {
       const dim = b.reception.type_materiel === 'Fil' ? `Ø${b.reception.diametre_fil}` : `${b.reception.largeur_feuillard}x${b.reception.longueur_feuillard}`
       const key = `${dim}-${b.reception.durete}-${b.reception.revetement}`
       if (!acc[key]) acc[key] = { dimension: dim, durete: b.reception.durete, revetement: b.reception.revetement, nb: 0, poids: 0 }
-      acc[key].nb++
-      acc[key].poids += parseFloat(b.poids_actuel)
-      return acc
+      acc[key].nb++; acc[key].poids += parseFloat(b.poids_actuel); return acc
     }, {} as Record<string, { dimension: string, durete: string, revetement: string, nb: number, poids: number }>)
 
-    // Trier par diamètre (maintenant valide en TS)
     return Object.values(grouped).sort((a, b) => getDiam(a.dimension) - getDiam(b.dimension))
   }, [bobines, lotFilter, diametreFilter])
-  
+
   const totalPoidsEtat = etatFiltre.reduce((s, i) => s + i.poids, 0)
   const totalNbEtat = etatFiltre.reduce((s, i) => s + i.nb, 0)
 
@@ -666,7 +667,14 @@ export default function Home() {
   }
 
   // --- PAGES FONCTIONNELLES ---
-  if (currentPage === 'arrivage') return (<div className="min-h-screen bg-gray-50 p-6"><div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8"><div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold text-blue-900">➕ Arrivage - Étape {wizardStep}/3</h1><button onClick={() => { setCurrentPage('autre'); setAutreSection('actions'); setWizardStep(1) }} className="text-red-600">✕</button></div>{wizardStep === 1 && (<form onSubmit={handleEtape1} className="space-y-4"><div className="grid grid-cols-3 gap-4"><div><label className="block text-sm font-medium mb-1">Code Fournisseur</label><input name="code_fournisseur" maxLength={4} required className="w-full px-4 py-2 border rounded-md uppercase" placeholder="MUGA" /></div><div><label className="block text-sm font-medium mb-1">N° Commande</label><input name="num_commande" maxLength={2} required className="w-full px-4 py-2 border rounded-md" placeholder="05" /></div><div><label className="block text-sm font-medium mb-1">N° Type Produit</label><input name="num_type_produit" maxLength={2} required className="w-full px-4 py-2 border rounded-md" placeholder="12" /></div></div><button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-md">Suivant →</button></form>)}{wizardStep === 2 && (<form onSubmit={handleEtape2} className="space-y-4"><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium mb-1">Type</label><select name="type_materiel" className="w-full px-4 py-2 border rounded-md"><option value="Fil">Fil</option><option value="Feuillard">Feuillard</option></select></div><div><label className="block text-sm font-medium mb-1">Matière</label><select name="matiere" required className="w-full px-4 py-2 border rounded-md"><option value="">-- Choisir --</option>{itemsMatiere.map(i => (<option key={i.id} value={i.nom}>{i.nom}</option>))}</select></div><div><label className="block text-sm font-medium mb-1">Dureté</label><select name="durete" required className="w-full px-4 py-2 border rounded-md"><option value="">-- Choisir --</option>{itemsDurete.map(i => (<option key={i.id} value={i.nom}>{i.nom}</option>))}</select></div><div><label className="block text-sm font-medium mb-1">Revêtement</label><select name="revetement" required className="w-full px-4 py-2 border rounded-md"><option value="">-- Choisir --</option>{itemsRev.map(i => (<option key={i.id} value={i.nom}>{i.nom}</option>))}</select></div></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium mb-1">Diamètre (mm)</label><input name="diametre_fil" type="number" step="0.01" className="w-full px-4 py-2 border rounded-md" placeholder="1.20" /></div><div><label className="block text-sm font-medium mb-1">Date</label><input name="date_reception" type="date" required className="w-full px-4 py-2 border rounded-md" /></div></div><div><label className="block text-sm font-medium mb-1">Nb bobines</label><input name="nombre_bobines" type="number" min="1" max="99" defaultValue="1" required className="w-full px-4 py-2 border rounded-md" /></div><div className="flex gap-2"><button type="button" onClick={() => setWizardStep(1)} className="flex-1 bg-gray-300 py-2 rounded-md">← Retour</button><button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-md">Suivant →</button></div></form>)}{wizardStep === 3 && (<div className="space-y-4"><div className="max-h-96 overflow-y-auto space-y-2">{receptionData.poids_bobines.map((p, i) => (<div key={i} className="flex items-center gap-4"><label className="w-32 text-sm font-medium">Bobine {String(i + 1).padStart(2, '0')}</label><input type="number" step="0.01" value={p || ''} onChange={e => handlePoidsChange(i, e.target.value)} className="flex-1 px-4 py-2 border rounded-md" placeholder="kg" /></div>))}</div><div className="bg-green-50 border border-green-200 rounded-md p-4"><p className="text-lg font-semibold text-green-800">Total : {poidsTotal.toFixed(2)} kg</p></div><div className="flex gap-2"><button onClick={() => setWizardStep(2)} className="flex-1 bg-gray-300 py-2 rounded-md">← Retour</button><button onClick={handleValiderReception} className="flex-1 bg-green-600 text-white py-2 rounded-md">✓ Valider</button></div></div>)}</div></div>)
+  if (currentPage === 'arrivage') return (
+    <div className="min-h-screen bg-gray-50 p-6"><div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8">
+      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold text-blue-900">➕ Arrivage - Étape {wizardStep}/3</h1><button onClick={() => { setCurrentPage('autre'); setAutreSection('actions'); setWizardStep(1) }} className="text-red-600">✕</button></div>
+      {wizardStep === 1 && (<form onSubmit={handleEtape1} className="space-y-4"><div className="grid grid-cols-3 gap-4"><div><label className="block text-sm font-medium mb-1">Code Fournisseur</label><input name="code_fournisseur" maxLength={4} required className="w-full px-4 py-2 border rounded-md uppercase" placeholder="MUGA" /></div><div><label className="block text-sm font-medium mb-1">N° Commande</label><input name="num_commande" maxLength={2} required className="w-full px-4 py-2 border rounded-md" placeholder="05" /></div><div><label className="block text-sm font-medium mb-1">N° Type Produit</label><input name="num_type_produit" maxLength={2} required className="w-full px-4 py-2 border rounded-md" placeholder="12" /></div></div><button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-md">Suivant →</button></form>)}
+      {wizardStep === 2 && (<form onSubmit={handleEtape2} className="space-y-4"><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium mb-1">Type</label><select name="type_materiel" className="w-full px-4 py-2 border rounded-md"><option value="Fil">Fil</option><option value="Feuillard">Feuillard</option></select></div><div><label className="block text-sm font-medium mb-1">Matière</label><select name="matiere" required className="w-full px-4 py-2 border rounded-md"><option value="">-- Choisir --</option>{itemsMatiere.map(i => (<option key={i.id} value={i.nom}>{i.nom}</option>))}</select></div><div><label className="block text-sm font-medium mb-1">Dureté</label><select name="durete" required className="w-full px-4 py-2 border rounded-md"><option value="">-- Choisir --</option>{itemsDurete.map(i => (<option key={i.id} value={i.nom}>{i.nom}</option>))}</select></div><div><label className="block text-sm font-medium mb-1">Revêtement</label><select name="revetement" required className="w-full px-4 py-2 border rounded-md"><option value="">-- Choisir --</option>{itemsRev.map(i => (<option key={i.id} value={i.nom}>{i.nom}</option>))}</select></div></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium mb-1">Diamètre (mm)</label><input name="diametre_fil" type="number" step="0.01" className="w-full px-4 py-2 border rounded-md" placeholder="1.20" /></div><div><label className="block text-sm font-medium mb-1">Date</label><input name="date_reception" type="date" required className="w-full px-4 py-2 border rounded-md" /></div></div><div><label className="block text-sm font-medium mb-1">Nb bobines</label><input name="nombre_bobines" type="number" min="1" max="99" defaultValue="1" required className="w-full px-4 py-2 border rounded-md" /></div><div className="flex gap-2"><button type="button" onClick={() => setWizardStep(1)} className="flex-1 bg-gray-300 py-2 rounded-md">← Retour</button><button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-md">Suivant →</button></div></form>)}
+      {wizardStep === 3 && (<div className="space-y-4"><div className="max-h-96 overflow-y-auto space-y-2">{receptionData.poids_bobines.map((p, i) => (<div key={i} className="flex items-center gap-4"><label className="w-32 text-sm font-medium">Bobine {String(i + 1).padStart(2, '0')}</label><input type="number" step="0.01" value={p || ''} onChange={e => handlePoidsChange(i, e.target.value)} className="flex-1 px-4 py-2 border rounded-md" placeholder="kg" /></div>))}</div><div className="bg-green-50 border border-green-200 rounded-md p-4"><p className="text-lg font-semibold text-green-800">Total : {poidsTotal.toFixed(2)} kg</p></div><div className="flex gap-2"><button onClick={() => setWizardStep(2)} className="flex-1 bg-gray-300 py-2 rounded-md">← Retour</button><button onClick={handleValiderReception} className="flex-1 bg-green-600 text-white py-2 rounded-md">✓ Valider</button></div></div>)}
+    </div></div>
+  )
 
   if (currentPage === 'usine') {
     const stock = bobines.filter(b => b.lieu === 'STOCK_PRINCIPAL'); const diams = Array.from(new Set(stock.filter(b => b.reception.type_materiel === 'Fil' && b.reception.diametre_fil).map(b => parseFloat(b.reception.diametre_fil!)))).sort((a, b) => a - b);
@@ -688,10 +696,22 @@ export default function Home() {
   if (currentPage === 'etat') {
     return (<div className="min-h-screen bg-gray-50 p-6"><div className="max-w-5xl mx-auto bg-white rounded-lg shadow-lg p-8"><div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold text-green-900">📊 État du stock</h1><button onClick={() => setCurrentPage('home')} className="text-red-600">✕</button></div>
       <div className="flex flex-wrap gap-4 mb-6">
-        <div className="bg-blue-50 border rounded-md p-4 flex-1"><label className="block text-sm font-medium mb-2">Filtrer par diamètre</label><div className="flex flex-wrap gap-2"><button onClick={() => setDiametreFilter('')} className={`px-4 py-2 rounded-md text-sm ${!diametreFilter ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Tous</button>{diametresDisponibles.map(d => (<button key={d} onClick={() => setDiametreFilter(d.toString())} className={`px-4 py-2 rounded-md text-sm ${diametreFilter === d.toString() ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Ø {d} mm</button>))}</div></div>
-        <div className="bg-purple-50 border rounded-md p-4 flex-1"><label className="block text-sm font-medium mb-2">Filtrer par lot</label><select value={lotFilter} onChange={e => setLotFilter(e.target.value)} className="w-full px-3 py-2 border rounded-md"><option value="all">Tous les lots</option>{Object.values(lotsDisponibles).map((l: any) => (<option key={l.id} value={l.id}>{l.nom} ({l.nb_bobines} bobines)</option>))}</select></div>
+        <div className="bg-blue-50 border rounded-md p-4 flex-1">
+          <label className="block text-sm font-medium mb-2">Filtrer par diamètre</label>
+          <div className="flex flex-wrap gap-2"><button onClick={() => setDiametreFilter('')} className={`px-4 py-2 rounded-md text-sm ${!diametreFilter ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Tous</button>{diametresDisponibles.map(d => (<button key={d} onClick={() => setDiametreFilter(d.toString())} className={`px-4 py-2 rounded-md text-sm ${diametreFilter === d.toString() ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Ø {d} mm</button>))}</div>
+        </div>
+        <div className="bg-purple-50 border rounded-md p-4 flex-1">
+          <label className="block text-sm font-medium mb-2">Filtrer par lot</label>
+          <select value={lotFilter} onChange={e => setLotFilter(e.target.value)} className="w-full px-3 py-2 border rounded-md">
+            <option value="all">Tous les lots</option>
+            {Object.values(lotsDisponibles).map((l: any) => (<option key={l.id} value={l.id}>{l.nom} ({l.nb_bobines} bobines)</option>))}
+          </select>
+        </div>
       </div>
-      <div className="bg-green-50 border border-green-200 rounded-md p-3 mb-4 flex justify-between items-center"><span className="font-semibold text-green-900">📦 Total affiché :</span><span className="text-green-800 font-bold text-lg">{totalPoidsEtat.toFixed(2)} kg <span className="text-sm font-normal text-green-700">({totalNbEtat} bobines)</span></span></div>
+      <div className="bg-green-50 border border-green-200 rounded-md p-3 mb-4 flex justify-between items-center">
+        <span className="font-semibold text-green-900">📦 Total affiché :</span>
+        <span className="text-green-800 font-bold text-lg">{totalPoidsEtat.toFixed(2)} kg <span className="text-sm font-normal text-green-700">({totalNbEtat} bobines)</span></span>
+      </div>
       <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th></tr></thead><tbody>{etatFiltre.length === 0 ? <tr><td colSpan={5} className="text-center py-4 text-gray-500">Aucune donnée</td></tr> : etatFiltre.map((i, idx) => (<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className="px-3 py-2">{i.durete}</td><td className="px-3 py-2">{i.revetement}</td><td className="px-3 py-2 text-right">{i.nb}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids.toFixed(2)} kg</td></tr>))}</tbody></table></div>
     </div></div>)
   }
