@@ -15,6 +15,16 @@ type Bobine = {
   statut: string
   lieu: string
   num_commande_fabrication: string | null
+  mouvements?: {
+    id: number
+    type_mouvement: string
+    poids_mouvement: string
+    date_mouvement: string
+    lieu_destination: string | null
+    client: string | null
+    n_commande_client: string | null
+    texte_libre: string | null
+  }[]
   reception: {
     code_fournisseur: string
     num_commande: string
@@ -45,8 +55,43 @@ type ReceptionData = {
   nombre_bobines: number
   poids_bobines: number[]
 }
+type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'backup' | 'reset'
+const APP_VERSION = 'V1.22'
+
+// Libellés affichables des types de pointage
+const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
+  ENTREE_FOURNISSEUR: '➡️ Entrée en stock',
+  SORTIE_USINE: '📤 Sortie vers usine',
+  RETOUR_USINE: '🔙 Retour usine',
+  SORTIE_DECHET: '🗑️ Rebut',
+  TRANSFERT_VERS_USINE: '➡️ Vers usine',
+  TRANSFERT_VERS_STOCK: '➡️ Vers stock',
+  TRANSFERT_VERS_DECHET: '➡️ Vers déchet'
+}
+
+type MouvementProduit = {
+  id: number
+  date_mouvement: string
+  code_bobine: string
+  type_mouvement: string
+  poids_mouvement: string
+  lieu_destination: string | null
+  n_commande_client: string | null
+  client: string | null
+  texte_libre: string | null
+}
+
+// Export CSV direct depuis le navigateur (sans appel serveur)
+function telechargerCSV(nomFichier: string, lignes: string[][]) {
+  const csv = lignes.map(l => l.map(v => /['";\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v).join(';')).join('\n')
+  const BOM = '\uFEFF'
+  const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8' })
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = nomFichier
+  document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url)
+}
 
 // ================= COMPOSANT ITEMS (Externe) =================
 
@@ -193,6 +238,16 @@ export default function Home() {
   const [newUser, setNewUser] = useState({ login: '', password: '', isSuper: false, isAdmin: false })
   const [history, setHistory] = useState<any[]>([])
   const [autreSection, setAutreSection] = useState<AutreSection>('actions')
+
+  // --- EXPORT (pointages) ---
+  const [exportDebut, setExportDebut] = useState('')
+  const [exportFin, setExportFin] = useState('')
+  const [exportBobine, setExportBobine] = useState('')
+  const [exportType, setExportType] = useState('')
+  const [showMouvementsProduit, setShowMouvementsProduit] = useState(false)
+  const [mouvementsProduit, setMouvementsProduit] = useState<MouvementProduit[]>([])
+  const [mouvementsProduitTitre, setMouvementsProduitTitre] = useState('')
+  const [chargementMouvements, setChargementMouvements] = useState(false)
 
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
   const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : 'https://stock-bobines.vercel.app'
@@ -388,6 +443,20 @@ export default function Home() {
     window.open(url, '_blank')
   }
 
+  // --- État : voir les mouvements d'un produit ---
+  const voirMouvementsProduit = async (produit: { dimension: string, durete: string, revetement: string }) => {
+    setMouvementsProduitTitre(`${produit.dimension} · ${produit.durete} · ${produit.revetement}`)
+    setShowMouvementsProduit(true)
+    setChargementMouvements(true)
+    setMouvementsProduit([])
+    try {
+      const res = await fetch(`/api/etat/mouvements?dimension=${encodeURIComponent(produit.dimension)}&durete=${encodeURIComponent(produit.durete)}&revetement=${encodeURIComponent(produit.revetement)}`)
+      if (res.ok) setMouvementsProduit(await res.json())
+      else alert('❌ Erreur chargement des mouvements')
+    } catch (e) { alert('❌ Erreur') } finally { setChargementMouvements(false) }
+  }
+  const fermerMouvementsProduit = () => { setShowMouvementsProduit(false); setMouvementsProduit([]); setMouvementsProduitTitre('') }
+
   // --- Diamètres disponibles (Global) ---
   const diametresDisponibles = useMemo(() => {
     return Array.from(new Set(
@@ -395,7 +464,57 @@ export default function Home() {
         .filter(b => b.lieu === 'STOCK_PRINCIPAL' && b.reception.type_materiel === 'Fil' && b.reception.diametre_fil)
         .map(b => parseFloat(b.reception.diametre_fil!))
     )).sort((a, b) => a - b)
-  }, [bobines])
+  }, [bobines])  // --- EXPORT : filtrage des pointages (côté client, lecture seule) ---
+  const pointagesFiltres = useMemo(() => {
+    return bobines
+      .flatMap(b => b.mouvements?.map(m => ({ ...m, bobine: b })) || [])
+      .filter(pt => {
+        if (exportDebut || exportFin) {
+          const d = new Date(pt.date_mouvement)
+          if (exportDebut && d < new Date(exportDebut + 'T00:00:00')) return false
+          if (exportFin && d > new Date(exportFin + 'T23:59:59')) return false
+        }
+        if (exportBobine && !pt.bobine.code_bobine.toLowerCase().includes(exportBobine.toLowerCase())) return false
+        if (exportType && pt.type_mouvement !== exportType) return false
+        return true
+      })
+      .sort((a, b) => new Date(a.date_mouvement).getTime() - new Date(b.date_mouvement).getTime())
+  }, [bobines, exportDebut, exportFin, exportBobine, exportType])
+
+  // --- EXPORT : génération CSV des pointages filtrés ---
+  const handleExportPointages = () => {
+    const fmtD = (v: string) => new Date(v).toLocaleDateString('fr-FR')
+    const fmtH = (v: string) => new Date(v).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    const lignes: string[][] = [
+      ['Date', 'Heure', 'Code Bobine', 'Lot', 'Type de pointage', 'Poids pointé (kg)', 'Dimension', 'Matière', 'Dureté', 'Revêtement', 'Fournisseur', 'N° commande', 'Type produit', 'N° commande fabrication', 'Lieu', 'Client', 'N° commande client', 'Note']
+    ]
+    for (const pt of pointagesFiltres) {
+      const b = pt.bobine
+      const r = b.reception
+      lignes.push([
+        fmtD(pt.date_mouvement),
+        fmtH(pt.date_mouvement),
+        b.code_bobine,
+        `${r.code_fournisseur}${r.num_commande}${r.num_type_produit}`,
+        LABELS_TYPE_MOUVEMENT[pt.type_mouvement] || pt.type_mouvement,
+        String(pt.poids_mouvement),
+        r.type_materiel === 'Fil' ? `Ø${r.diametre_fil}` : `${r.largeur_feuillard}x${r.longueur_feuillard}`,
+        r.matiere,
+        r.durete,
+        r.revetement,
+        r.code_fournisseur,
+        r.num_commande,
+        r.num_type_produit,
+        b.num_commande_fabrication || '',
+        pt.lieu_destination || b.lieu,
+        pt.client || '',
+        pt.n_commande_client || '',
+        pt.texte_libre || ''
+      ])
+    }
+    telechargerCSV(`pointages_bobines_${new Date().toISOString().split('T')[0]}.csv`, lignes)
+    alert(`✅ ${pointagesFiltres.length} pointage(s) exporté(s)`)
+  }
 
   // --- Memoized Etat ---
   const etatFiltre = useMemo(() => {
@@ -517,7 +636,7 @@ export default function Home() {
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-6xl mx-auto">
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6 flex justify-between items-center">
-            <div><h1 className="text-2xl font-bold">🔐 Administration</h1><p className="text-sm text-gray-600">Super Admin : {currentUser}</p></div>
+            <div><h1 className="text-2xl font-bold">🔐 Administration <span className="ml-2 text-sm bg-gray-200 text-gray-700 px-2 py-1 rounded align-middle">Version {APP_VERSION}</span></h1><p className="text-sm text-gray-600">Super Admin : {currentUser}</p></div>
             <button onClick={() => { setCurrentPage('home'); setAutreSection('actions') }} className="bg-gray-600 text-white px-4 py-2 rounded-lg">← Accueil</button>
           </div>
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
@@ -531,10 +650,10 @@ export default function Home() {
           </div>
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="flex border-b overflow-x-auto">
-              {['actions', 'items', 'lots', 'users', 'history', 'backup', 'reset'].map(s => (
-                <button key={s} onClick={() => { setAutreSection(s as AutreSection); if (s === 'lots') chargerLots(); if (s === 'users') chargerUsers(); if (s === 'history') chargerHistory() }}
+              {['actions', 'items', 'lots', 'users', 'history', 'export', 'backup', 'reset'].map(s => (
+                <button key={s} onClick={() => { setAutreSection(s as AutreSection); if (s === 'lots') chargerLots(); if (s === 'users') chargerUsers(); if (s === 'history') chargerHistory(); if (s === 'export') chargerBobines() }}
                   className={`px-6 py-4 font-semibold whitespace-nowrap ${autreSection === s ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
-                  {{ actions: '⚡ Actions', items: '📝 Items', lots: '📦 Lots', users: '👥 Utilisateurs', history: '📊 Historique', backup: '💾 Backup', reset: '⚠️ Reset' }[s]}
+                  {{ actions: '⚡ Actions', items: '📝 Items', lots: '📦 Lots', users: '👥 Utilisateurs', history: '📊 Historique', export: '📤 EXPORT', backup: '💾 Backup', reset: '⚠️ Reset' }[s]}
                 </button>
               ))}
             </div>
@@ -653,6 +772,33 @@ export default function Home() {
                   </div>
                 </div>
               )}
+              {autreSection === 'export' && (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                    <h3 className="text-sm font-semibold mb-2">🔎 Filtrer les pointages (optionnel)</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div><label className="block text-xs text-gray-600 mb-1">Du</label><input type="date" value={exportDebut} onChange={e => setExportDebut(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" /></div>
+                      <div><label className="block text-xs text-gray-600 mb-1">Au</label><input type="date" value={exportFin} onChange={e => setExportFin(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" /></div>
+                      <div><label className="block text-xs text-gray-600 mb-1">Code bobine contient</label><input value={exportBobine} onChange={e => setExportBobine(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" placeholder="ex : MUGA" /></div>
+                      <div><label className="block text-xs text-gray-600 mb-1">Type de pointage</label>
+                        <select value={exportType} onChange={e => setExportType(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
+                          <option value="">Tous</option>
+                          {Object.entries(LABELS_TYPE_MOUVEMENT).map(([k, v]) => (<option key={k} value={k}>{v.replace(/^[^a-zA-Z]+/, '')}</option>))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <button onClick={handleExportPointages} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-md">📥 Exporter les pointages (CSV)</button>
+                    <span className="text-sm text-gray-600">{pointagesFiltres.length} pointage(s) — entrées, sorties usine, retours, rebuts…</span>
+                  </div>
+                  <div className="bg-gray-50 border rounded-md p-4">
+                    <h3 className="text-sm font-semibold mb-2">📄 Export serveur (historique complet, très gros volumes)</h3>
+                    <button onClick={() => window.open('/api/export/pointages', '_blank')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm">🌐 Tous les pointages (serveur)</button>
+                    <p className="text-xs text-gray-500 mt-2">Fichier CSV lisible dans Excel (séparateur ;)</p>
+                  </div>
+                </div>
+              )}
               {autreSection === 'reset' && (
                 <div className="bg-red-50 border border-red-300 rounded-md p-6">
                   <p className="text-sm text-red-800 mb-4">Supprime TOUTES les données (réceptions, bobines, mouvements, items). Les utilisateurs et l'historique sont conservés.</p>
@@ -712,8 +858,43 @@ export default function Home() {
         <span className="font-semibold text-green-900">📦 Total affiché :</span>
         <span className="text-green-800 font-bold text-lg">{totalPoidsEtat.toFixed(2)} kg <span className="text-sm font-normal text-green-700">({totalNbEtat} bobines)</span></span>
       </div>
-      <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th></tr></thead><tbody>{etatFiltre.length === 0 ? <tr><td colSpan={5} className="text-center py-4 text-gray-500">Aucune donnée</td></tr> : etatFiltre.map((i, idx) => (<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className="px-3 py-2">{i.durete}</td><td className="px-3 py-2">{i.revetement}</td><td className="px-3 py-2 text-right">{i.nb}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids.toFixed(2)} kg</td></tr>))}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th><th className="px-3 py-2 text-center">Mouvements</th></tr></thead><tbody>{etatFiltre.length === 0 ? <tr><td colSpan={6} className="text-center py-4 text-gray-500">Aucune donnée</td></tr> : etatFiltre.map((i, idx) => (<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className="px-3 py-2">{i.durete}</td><td className="px-3 py-2">{i.revetement}</td><td className="px-3 py-2 text-right">{i.nb}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids.toFixed(2)} kg</td><td className="px-3 py-2 text-center"><button onClick={() => voirMouvementsProduit(i)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">📈 Mouvements</button></td></tr>))}</tbody></table></div>
     </div></div>)
+  }
+
+  if (showMouvementsProduit) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6"><div className="max-w-5xl mx-auto bg-white rounded-lg shadow-lg p-8">
+        <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold text-blue-900">📈 Mouvements — {mouvementsProduitTitre}</h1><button onClick={fermerMouvementsProduit} className="text-red-600">✕</button></div>
+        {chargementMouvements ? <p className="text-center py-8 text-gray-500">Chargement…</p> : mouvementsProduit.length === 0 ? <p className="text-center py-8 text-gray-500">Aucun mouvement pour ce produit</p> : (
+          <div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Pointage</th><th className="px-3 py-2 text-right">Poids (kg)</th><th className="px-3 py-2 text-left">Lieu</th><th className="px-3 py-2 text-left">Client</th><th className="px-3 py-2 text-left">N° cmd client</th></tr></thead>
+            <tbody>{mouvementsProduit.map(m => (
+              <tr key={m.id} className="border-b hover:bg-gray-50">
+                <td className="px-3 py-2 text-xs whitespace-nowrap">{new Date(m.date_mouvement).toLocaleString('fr-FR')}</td>
+                <td className="px-3 py-2 font-mono">{m.code_bobine}</td>
+                <td className="px-3 py-2">{LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement}</td>
+                <td className="px-3 py-2 text-right font-semibold">{parseFloat(m.poids_mouvement).toFixed(2)}</td>
+                <td className="px-3 py-2 text-xs">{m.lieu_destination || '-'}</td>
+                <td className="px-3 py-2 text-xs">{m.client || '-'}</td>
+                <td className="px-3 py-2 text-xs">{m.n_commande_client || '-'}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        )}
+        <div className="mt-4 flex gap-2">
+          <button onClick={() => telechargerCSV(`mouvements_produit_${mouvementsProduitTitre.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`, [
+            ['Date', 'Code Bobine', 'Type de pointage', 'Poids pointé (kg)', 'Lieu', 'Client', 'N° commande client', 'Note'],
+            ...mouvementsProduit.map(m => [
+              new Date(m.date_mouvement).toLocaleString('fr-FR'), m.code_bobine,
+              LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement,
+              String(m.poids_mouvement), m.lieu_destination || '', m.client || '', m.n_commande_client || '', m.texte_libre || ''
+            ])
+          ])} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm">📥 Exporter en CSV</button>
+          <button onClick={fermerMouvementsProduit} className="bg-gray-300 px-4 py-2 rounded-md text-sm">← Retour</button>
+        </div>
+      </div></div>
+    )
   }
 
   return null
