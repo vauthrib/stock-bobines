@@ -57,7 +57,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.23'
+const APP_VERSION = 'V1.24'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -323,6 +323,13 @@ export default function Home() {
   const [chargementAnalyse, setChargementAnalyse] = useState(false)
   const [groupeAnalyse, setGroupeAnalyse] = useState<'lot' | 'fournisseur' | 'diametre'>('lot')
   const [bobineAnalyseDetail, setBobineAnalyseDetail] = useState<number | null>(null)
+  // Sélection (filtres) de la page Analyse
+  const [analyseLotSel, setAnalyseLotSel] = useState('')
+  const [analyseFournSel, setAnalyseFournSel] = useState('')
+  const [analyseDimSel, setAnalyseDimSel] = useState('')
+  const [analyseDureteSel, setAnalyseDureteSel] = useState('')
+  const [analyseRevSel, setAnalyseRevSel] = useState('')
+  const [rechercheCmdFab, setRechercheCmdFab] = useState('')
 
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
   const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : 'https://stock-bobines.vercel.app'
@@ -660,11 +667,71 @@ export default function Home() {
     })
   }, [analyseBobines])
 
+  // --- ANALYSE : options de sélection (lots, fournisseurs, dimensions, duretés, revêtements) ---
+  const analyseOptions = useMemo(() => {
+    const lots = new Map<string, string>()
+    const fourns = new Map<string, string>()
+    const dims = new Set<string>()
+    const duretes = new Set<string>()
+    const revs = new Set<string>()
+    for (const l of lignesAnalyse) {
+      const k = `${l.fournisseur}-${l.numCommande}-${l.typeProduit}`
+      if (!lots.has(k)) lots.set(k, `Lot ${l.lot} · ${l.matiere} · Reçu le ${fmtDateAnalyse(l.dateReception)}`)
+      if (!fourns.has(l.fournisseur)) fourns.set(l.fournisseur, l.fournisseur)
+      dims.add(l.dimension)
+      duretes.add(l.durete)
+      revs.add(l.revetement)
+    }
+    const numOf = (dim: string) => { const m = dim.match(/Ø?([\d.]+)/); return m ? parseFloat(m[1]) : 9999 }
+    return {
+      lots: Array.from(lots.entries()).sort((a, b) => a[0].localeCompare(b[0])),
+      fournisseurs: Array.from(fourns.keys()).sort(),
+      dimensions: Array.from(dims).sort((a, b) => numOf(a) - numOf(b) || a.localeCompare(b)),
+      duretes: Array.from(duretes).sort(),
+      revetements: Array.from(revs).sort()
+    }
+  }, [lignesAnalyse])
+
+  // --- ANALYSE : sous-ensembles après application des sélections ---
+  const analyseFiltrees = useMemo(() => {
+    let res = lignesAnalyse
+    if (analyseLotSel) res = res.filter(l => `${l.fournisseur}-${l.numCommande}-${l.typeProduit}` === analyseLotSel)
+    if (analyseFournSel) res = res.filter(l => l.fournisseur === analyseFournSel)
+    if (analyseDimSel) res = res.filter(l => l.dimension === analyseDimSel)
+    if (analyseDureteSel) res = res.filter(l => l.durete === analyseDureteSel)
+    if (analyseRevSel) res = res.filter(l => l.revetement === analyseRevSel)
+    return res
+  }, [lignesAnalyse, analyseLotSel, analyseFournSel, analyseDimSel, analyseDureteSel, analyseRevSel])
+
+  // Duretés / revêtements proposés restreints à la dimension choisie (comme l'État du stock)
+  const analyseDuretesDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => !analyseDimSel || l.dimension === analyseDimSel).map(l => l.durete))).sort(), [lignesAnalyse, analyseDimSel])
+  const analyseRevsDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => (!analyseDimSel || l.dimension === analyseDimSel) && (!analyseDureteSel || l.durete === analyseDureteSel)).map(l => l.revetement))).sort(), [lignesAnalyse, analyseDimSel, analyseDureteSel])
+
+  // --- ANALYSE : recherche par n° de commande fabrication ---
+  const resultatsCmdFab = useMemo(() => {
+    const q = rechercheCmdFab.trim().toUpperCase()
+    if (!q) return null
+    return lignesAnalyse
+      .filter(l => (l.numCmdFab || '').toUpperCase().includes(q))
+      .sort((a, b) => a.code.localeCompare(b.code))
+  }, [lignesAnalyse, rechercheCmdFab])
+
+  // Description textuelle de la sélection active (pour les exports CSV)
+  const analysePeriodeActive = () => {
+    const parts: string[] = []
+    if (analyseLotSel) parts.push(`Lot ${analyseLotSel}`)
+    if (analyseFournSel) parts.push(`Fournisseur ${analyseFournSel}`)
+    if (analyseDimSel) parts.push(`Dimension ${analyseDimSel}`)
+    if (analyseDureteSel) parts.push(`Dureté ${analyseDureteSel}`)
+    if (analyseRevSel) parts.push(`Revêtement ${analyseRevSel}`)
+    return parts.join(' + ')
+  }
+
   // --- ANALYSE : regroupement lot / fournisseur / diamètre ---
   const analyseGroupes: GroupeAnalyse[] = useMemo(() => {
     const numOf = (dim: string) => { const m = dim.match(/Ø?([\d.]+)/); return m ? parseFloat(m[1]) : 9999 }
     const groupes = new Map<string, GroupeAnalyse>()
-    for (const l of lignesAnalyse) {
+    for (const l of analyseFiltrees) {
       let key = '', icone = '📦', label = ''
       if (groupeAnalyse === 'lot') {
         key = `${l.fournisseur}-${l.numCommande}-${l.typeProduit}`
@@ -694,12 +761,12 @@ export default function Home() {
     }
     res.sort((a, b) => groupeAnalyse === 'diametre' ? (numOf(a.key) - numOf(b.key) || a.key.localeCompare(b.key)) : a.key.localeCompare(b.key))
     return res
-  }, [lignesAnalyse, groupeAnalyse])
+  }, [analyseFiltrees, groupeAnalyse])
 
-  // --- ANALYSE : totaux globaux ---
+  // --- ANALYSE : totaux (sur le sous-ensemble filtré) ---
   const analyseTotal = useMemo(() => {
     let poidsInitial = 0, poidsStock = 0, poidsUsine = 0, nbSorties = 0, nbRetours = 0, nbRebuts = 0
-    for (const l of lignesAnalyse) {
+    for (const l of analyseFiltrees) {
       poidsInitial += l.poidsInitial
       if (l.lieu === 'STOCK_PRINCIPAL') poidsStock += l.poidsActuel
       if (l.lieu === 'USINE') poidsUsine += l.poidsActuel
@@ -707,18 +774,20 @@ export default function Home() {
       nbRetours += l.retoursUsine.length
       if (l.dechets.length > 0) nbRebuts++
     }
-    return { nbBobines: lignesAnalyse.length, poidsInitial, poidsStock, poidsUsine, nbSorties, nbRetours, nbRebuts }
-  }, [lignesAnalyse])
+    return { nbBobines: analyseFiltrees.length, poidsInitial, poidsStock, poidsUsine, nbSorties, nbRetours, nbRebuts }
+  }, [analyseFiltrees])
 
   // --- ANALYSE : exports CSV ---
   const handleExportAnalyseSynthese = () => {
     const lignes: string[][] = [
+      [`Analyse des mouvements — exporté le ${fmtDateAnalyse(new Date().toISOString())}${analysePeriodeActive() ? ` — Sélection : ${analysePeriodeActive()}` : ''}`],
       ['Groupe', 'Lot', 'Fournisseur', 'N° commande', 'Type produit', 'Dimension', 'Code bobine', 'Poids initial (kg)', 'Date arrivée', 'Nb sorties usine', 'Dates sorties usine', 'Nb retours usine', 'Retours usine (date + poids kg)', 'Date mise en déchet', 'Poids actuel (kg)', 'Statut', 'Lieu actuel', 'N° commande fabrication', 'Matière', 'Dureté', 'Revêtement']
     ]
     for (const g of analyseGroupes) {
       for (const l of g.bobines) {
         lignes.push([
           g.label,
+          rechercheCmdFab.trim().toUpperCase(),
           l.lot,
           l.fournisseur,
           l.numCommande,
@@ -742,12 +811,13 @@ export default function Home() {
         ])
       }
     }
-    telechargerCSV(`analyse_bobines_par_${groupeAnalyse}_${new Date().toISOString().split('T')[0]}.csv`, lignes)
+    telechargerCSV(`analyse_bobines_par_${groupeAnalyse}${analysePeriodeActive() ? '_' + analysePeriodeActive().replace(/[^A-Za-z0-9]+/g, '-') : ''}_${new Date().toISOString().split('T')[0]}.csv`, lignes)
   }
 
   const handleExportAnalyseDetail = () => {
     const lignes: string[][] = [
-      ['Date', 'Heure', 'Groupe', 'Lot', 'Fournisseur', 'Dimension', 'Code bobine', 'Type de pointage', 'Poids pointé (kg)', 'Lieu', 'N° commande fabrication', 'Client', 'N° commande client', 'Note']
+      [`Analyse des mouvements — exporté le ${fmtDateAnalyse(new Date().toISOString())}${analysePeriodeActive() ? ` — Sélection : ${analysePeriodeActive()}` : ''}`],
+      ['Date', 'Heure', 'Groupe', 'Lot', 'Fournisseur', 'Dimension', 'Code bobine', 'Type de pointage', 'Poids pointé (kg)', 'Lieu', 'N° commande fabrication', 'Cmd fab (recherche)', 'Client', 'N° commande client', 'Note']
     ]
     for (const g of analyseGroupes) {
       for (const l of g.bobines) {
@@ -764,6 +834,7 @@ export default function Home() {
             parseFloat(m.poids_mouvement).toFixed(2),
             m.lieu_destination || '',
             l.numCmdFab || '',
+            rechercheCmdFab.trim().toUpperCase(),
             m.client || '',
             m.n_commande_client || '',
             m.texte_libre || ''
@@ -771,10 +842,8 @@ export default function Home() {
         }
       }
     }
-    telechargerCSV(`analyse_bobines_mouvements_${new Date().toISOString().split('T')[0]}.csv`, lignes)
+    telechargerCSV(`analyse_bobines_mouvements${analysePeriodeActive() ? '_' + analysePeriodeActive().replace(/[^A-Za-z0-9]+/g, '-') : ''}_${new Date().toISOString().split('T')[0]}.csv`, lignes)
   }
-
-  // ================= RENDUS CONDITIONNELS =================
 
   if (!isAuthenticated) {
     return (
@@ -1056,10 +1125,60 @@ export default function Home() {
         <div className="bg-teal-50 border border-teal-200 rounded-md p-4 mb-6">
           <label className="block text-sm font-medium mb-2">Analyser par :</label>
           <div className="flex flex-wrap gap-2">
-            {([['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur'], ['diametre', '📏 Par diamètre']] as const).map(([k, lbl]) => (
-              <button key={k} onClick={() => setGroupeAnalyse(k)} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
+            {([['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur'], ['diametre', '📏 Par produit']] as const).map(([k, lbl]) => (
+              <button key={k} onClick={() => { setGroupeAnalyse(k); setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSel(''); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
             ))}
           </div>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            {groupeAnalyse === 'lot' && (
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Sélectionner un lot</label>
+                <select value={analyseLotSel} onChange={e => setAnalyseLotSel(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
+                  <option value="">Tous les lots</option>
+                  {analyseOptions.lots.map(([k, lbl]) => (<option key={k} value={k}>{lbl}</option>))}
+                </select>
+              </div>
+            )}
+            {groupeAnalyse === 'fournisseur' && (
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Sélectionner un fournisseur</label>
+                <select value={analyseFournSel} onChange={e => setAnalyseFournSel(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
+                  <option value="">Tous les fournisseurs</option>
+                  {analyseOptions.fournisseurs.map(f => (<option key={f} value={f}>{f}</option>))}
+                </select>
+              </div>
+            )}
+            {groupeAnalyse === 'diametre' && (<>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Dimension (diamètre / feuillard)</label>
+                <select value={analyseDimSel} onChange={e => { setAnalyseDimSel(e.target.value); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className="w-full px-3 py-2 border rounded-md text-sm">
+                  <option value="">Toutes les dimensions</option>
+                  {analyseOptions.dimensions.map(d => (<option key={d} value={d}>{d}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Dureté</label>
+                <select value={analyseDureteSel} onChange={e => { setAnalyseDureteSel(e.target.value); setAnalyseRevSel('') }} className="w-full px-3 py-2 border rounded-md text-sm">
+                  <option value="">Toutes les duretés</option>
+                  {analyseDuretesDispo.map(d => (<option key={d} value={d}>{d}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Revêtement</label>
+                <select value={analyseRevSel} onChange={e => setAnalyseRevSel(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
+                  <option value="">Tous les revêtements</option>
+                  {analyseRevsDispo.map(r => (<option key={r} value={r}>{r}</option>))}
+                </select>
+              </div>
+            </>)}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">🔍 N° commande fabrication</label>
+              <input value={rechercheCmdFab} onChange={e => setRechercheCmdFab(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" placeholder="ex : C3434" />
+            </div>
+          </div>
+          {(analyseLotSel || analyseFournSel || analyseDimSel || analyseDureteSel || analyseRevSel || rechercheCmdFab) && (
+            <button onClick={() => { setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSel(''); setAnalyseDureteSel(''); setAnalyseRevSel(''); setRechercheCmdFab('') }} className="mt-3 bg-white border border-teal-300 text-teal-700 px-3 py-1 rounded-md text-xs">✕ Réinitialiser les filtres</button>
+          )}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div className="bg-blue-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Bobines</p><p className="text-xl font-bold text-blue-800">{analyseTotal.nbBobines}</p></div>
@@ -1071,7 +1190,54 @@ export default function Home() {
           <button onClick={handleExportAnalyseSynthese} className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-md text-sm font-semibold">📥 Exporter la synthèse (CSV)</button>
           <button onClick={handleExportAnalyseDetail} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-sm font-semibold">📥 Exporter le détail des mouvements (CSV)</button>
         </div>
-        {chargementAnalyse ? <p className="text-center py-8 text-gray-500">Chargement…</p> : analyseGroupes.length === 0 ? <p className="text-center py-8 text-gray-500">Aucune donnée</p> : (
+        {chargementAnalyse ? <p className="text-center py-8 text-gray-500">Chargement…</p> : resultatsCmdFab ? (
+          resultatsCmdFab.length === 0 ? <p className="text-center py-8 text-gray-500">Aucune bobine avec une cmd fab contenant « {rechercheCmdFab.trim()} »</p> : (
+            <div className="border rounded-md overflow-hidden">
+              <div className="bg-blue-100 px-4 py-2">
+                <p className="font-bold text-gray-800">🔎 Cmd fab contenant « {rechercheCmdFab.trim()} » — {resultatsCmdFab.length} bobine(s) trouvée(s)</p>
+                <p className="text-xs text-gray-600 mt-0.5">Cliquer sur une ligne pour déplier ou replier son historique complet.</p>
+              </div>
+              <div className="overflow-x-auto"><table className="w-full text-sm">
+                <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Lot</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Cmd fab</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th></tr></thead>
+                <tbody>
+                  {resultatsCmdFab.map(l => (
+                    <Fragment key={l.id}>
+                      <tr onClick={() => setBobineAnalyseDetail(bobineAnalyseDetail === l.id ? null : l.id)} className={`border-b cursor-pointer ${bobineAnalyseDetail === l.id ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                        <td className="px-3 py-2 font-mono font-semibold">{bobineAnalyseDetail === l.id ? '▾' : '▸'} {l.code}</td>
+                        <td className="px-3 py-2">{l.lot}</td>
+                        <td className="px-3 py-2">{l.dimension}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{l.numCmdFab || '-'}</td>
+                        <td className="px-3 py-2 text-right">{l.poidsInitial.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-green-800">{l.poidsActuel.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-xs">{LIBELLES_STATUT[l.statut] || l.statut}</td>
+                      </tr>
+                      {bobineAnalyseDetail === l.id && (
+                        <tr><td colSpan={7} className="bg-blue-50 px-4 py-3">
+                          <p className="text-xs font-semibold mb-2">Historique complet — {l.code}{l.numCmdFab ? ` · Cmd fab : ${l.numCmdFab}` : ''} · Lot {l.lot}</p>
+                          <table className="w-full text-xs">
+                            <thead><tr className="text-gray-600"><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1 pr-3">Pointage</th><th className="text-right py-1 pr-3">Poids (kg)</th><th className="text-left py-1 pr-3">Lieu</th><th className="text-left py-1 pr-3">Client</th><th className="text-left py-1">Note</th></tr></thead>
+                            <tbody>
+                              {l.mvts.map(m => (
+                                <tr key={m.id} className="border-t border-blue-100">
+                                  <td className="py-1 pr-3 whitespace-nowrap">{new Date(m.date_mouvement).toLocaleString('fr-FR')}</td>
+                                  <td className="py-1 pr-3">{LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement}</td>
+                                  <td className="py-1 pr-3 text-right font-semibold">{parseFloat(m.poids_mouvement).toFixed(2)}</td>
+                                  <td className="py-1 pr-3">{m.lieu_destination || '-'}</td>
+                                  <td className="py-1 pr-3">{m.client || '-'}</td>
+                                  <td className="py-1">{m.texte_libre || ''}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td></tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table></div>
+            </div>
+          )
+        ) : analyseGroupes.length === 0 ? <p className="text-center py-8 text-gray-500">Aucune donnée pour cette sélection</p> : (
           <div className="space-y-6">
             {analyseGroupes.map(g => {
               const pInit = g.bobines.reduce((s, l) => s + l.poidsInitial, 0)
@@ -1131,7 +1297,8 @@ export default function Home() {
               )
             })}
           </div>
-        )}
+          )
+        }
       </div></div>
     )
   }
