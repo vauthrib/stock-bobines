@@ -1,7 +1,7 @@
 
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { Html5QrcodeScanner } from 'html5-qrcode'
 import { QRCodeSVG } from 'qrcode.react'
 
@@ -57,7 +57,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.22'
+const APP_VERSION = 'V1.23'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -81,6 +81,75 @@ type MouvementProduit = {
   client: string | null
   texte_libre: string | null
 }
+
+// --- Types pour l'analyse des mouvements (/api/analyse) ---
+type MvtAnalyse = {
+  id: number
+  type_mouvement: string
+  poids_mouvement: string
+  date_mouvement: string
+  lieu_destination: string | null
+  client: string | null
+  n_commande_client: string | null
+  texte_libre: string | null
+}
+
+type BobineAnalyse = {
+  id: number
+  code_bobine: string
+  poids_initial: string
+  poids_actuel: string
+  statut: string
+  lieu: string
+  num_commande_fabrication: string | null
+  mouvements: MvtAnalyse[]
+  reception: {
+    code_fournisseur: string
+    num_commande: string
+    num_type_produit: string
+    type_materiel: string
+    diametre_fil: string | null
+    largeur_feuillard: string | null
+    longueur_feuillard: string | null
+    matiere: string
+    durete: string
+    revetement: string
+    date_reception: string
+  }
+}
+
+// Une ligne d'analyse = une bobine avec ses événements extraits
+type LigneAnalyse = {
+  id: number
+  code: string
+  lot: string
+  fournisseur: string
+  numCommande: string
+  typeProduit: string
+  dimension: string
+  matiere: string
+  durete: string
+  revetement: string
+  dateReception: string
+  poidsInitial: number
+  poidsActuel: number
+  statut: string
+  lieu: string
+  numCmdFab: string | null
+  arrivee: string
+  sortiesUsine: MvtAnalyse[]
+  retoursUsine: MvtAnalyse[]
+  dechets: MvtAnalyse[]
+  mvts: MvtAnalyse[]
+}
+
+type GroupeAnalyse = { key: string; icone: string; label: string; sousTitre: string; bobines: LigneAnalyse[] }
+
+const LIBELLES_STATUT: Record<string, string> = { EN_STOCK: 'En stock', PARTIELLE: 'Partielle', VIDE: 'Vide', DECHET: 'Déchet' }
+const LIBELLES_LIEU: Record<string, string> = { STOCK_PRINCIPAL: 'Stock', USINE: 'Usine', DECHET: 'Déchet' }
+
+const dimensionReception = (r: BobineAnalyse['reception']) =>
+  r.type_materiel === 'Fil' ? `Ø${r.diametre_fil ?? '?'}` : `${r.largeur_feuillard ?? '?'}x${r.longueur_feuillard ?? '?'}`
 
 // Export CSV direct depuis le navigateur (sans appel serveur)
 function telechargerCSV(nomFichier: string, lignes: string[][]) {
@@ -193,7 +262,7 @@ export default function Home() {
 
   // --- Data ---
   const [bobines, setBobines] = useState<Bobine[]>([])
-  const [currentPage, setCurrentPage] = useState<'home' | 'arrivage' | 'usine' | 'retour_usine' | 'retour' | 'etat' | 'autre'>('home')
+  const [currentPage, setCurrentPage] = useState<'home' | 'arrivage' | 'usine' | 'retour_usine' | 'retour' | 'etat' | 'autre' | 'analyse'>('home')
 
   // --- Wizard ---
   const [wizardStep, setWizardStep] = useState(1)
@@ -249,6 +318,12 @@ export default function Home() {
   const [mouvementsProduitTitre, setMouvementsProduitTitre] = useState('')
   const [chargementMouvements, setChargementMouvements] = useState(false)
 
+  // --- ANALYSE des mouvements ---
+  const [analyseBobines, setAnalyseBobines] = useState<BobineAnalyse[]>([])
+  const [chargementAnalyse, setChargementAnalyse] = useState(false)
+  const [groupeAnalyse, setGroupeAnalyse] = useState<'lot' | 'fournisseur' | 'diametre'>('lot')
+  const [bobineAnalyseDetail, setBobineAnalyseDetail] = useState<number | null>(null)
+
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
   const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : 'https://stock-bobines.vercel.app'
 
@@ -280,6 +355,14 @@ export default function Home() {
   const chargerLots = async () => { try { const res = await fetch('/api/lots'); setLots(await res.json()) } catch (e) { } }
   const chargerUsers = async () => { try { const res = await fetch('/api/users'); setUsers(await res.json()) } catch (e) { } }
   const chargerHistory = async () => { try { const res = await fetch('/api/auth/history?limit=100'); setHistory(await res.json()) } catch (e) { } }
+  const chargerAnalyse = async () => {
+    setChargementAnalyse(true)
+    try {
+      const res = await fetch('/api/analyse')
+      if (res.ok) setAnalyseBobines(await res.json())
+      else alert("❌ Erreur chargement de l'analyse")
+    } catch { alert('❌ Erreur') } finally { setChargementAnalyse(false) }
+  }
 
   // --- Auth ---
   const handleAuth = async () => {
@@ -545,6 +628,152 @@ export default function Home() {
   const totalPoidsEtat = etatFiltre.reduce((s, i) => s + i.poids, 0)
   const totalNbEtat = etatFiltre.reduce((s, i) => s + i.nb, 0)
 
+  // --- ANALYSE : extraction des événements par bobine ---
+  const fmtDateAnalyse = (v: string) => new Date(v).toLocaleDateString('fr-FR')
+
+  const lignesAnalyse: LigneAnalyse[] = useMemo(() => {
+    return analyseBobines.map(b => {
+      const mvts = b.mouvements || []
+      return {
+        id: b.id,
+        code: b.code_bobine,
+        lot: `${b.reception.code_fournisseur}${b.reception.num_commande}${b.reception.num_type_produit}`,
+        fournisseur: b.reception.code_fournisseur,
+        numCommande: b.reception.num_commande,
+        typeProduit: b.reception.num_type_produit,
+        dimension: dimensionReception(b.reception),
+        matiere: b.reception.matiere,
+        durete: b.reception.durete,
+        revetement: b.reception.revetement,
+        dateReception: b.reception.date_reception,
+        poidsInitial: parseFloat(b.poids_initial),
+        poidsActuel: parseFloat(b.poids_actuel),
+        statut: b.statut,
+        lieu: b.lieu,
+        numCmdFab: b.num_commande_fabrication,
+        arrivee: mvts.find(m => m.type_mouvement === 'ENTREE_FOURNISSEUR')?.date_mouvement || b.reception.date_reception,
+        sortiesUsine: mvts.filter(m => m.type_mouvement === 'SORTIE_USINE' || m.type_mouvement === 'TRANSFERT_VERS_USINE'),
+        retoursUsine: mvts.filter(m => m.type_mouvement === 'RETOUR_USINE'),
+        dechets: mvts.filter(m => m.type_mouvement === 'SORTIE_DECHET' || m.type_mouvement === 'TRANSFERT_VERS_DECHET'),
+        mvts
+      }
+    })
+  }, [analyseBobines])
+
+  // --- ANALYSE : regroupement lot / fournisseur / diamètre ---
+  const analyseGroupes: GroupeAnalyse[] = useMemo(() => {
+    const numOf = (dim: string) => { const m = dim.match(/Ø?([\d.]+)/); return m ? parseFloat(m[1]) : 9999 }
+    const groupes = new Map<string, GroupeAnalyse>()
+    for (const l of lignesAnalyse) {
+      let key = '', icone = '📦', label = ''
+      if (groupeAnalyse === 'lot') {
+        key = `${l.fournisseur}-${l.numCommande}-${l.typeProduit}`
+        label = `Lot ${l.lot}`
+      } else if (groupeAnalyse === 'fournisseur') {
+        key = l.fournisseur
+        icone = '🏭'; label = l.fournisseur
+      } else {
+        key = l.dimension
+        icone = '📏'; label = l.dimension
+      }
+      let g = groupes.get(key)
+      if (!g) { g = { key, icone, label, sousTitre: '', bobines: [] }; groupes.set(key, g) }
+      g.bobines.push(l)
+    }
+    const res = Array.from(groupes.values())
+    for (const g of res) {
+      g.bobines.sort((a, b) => a.code.localeCompare(b.code))
+      if (groupeAnalyse === 'lot') {
+        const l = g.bobines[0]
+        if (l) g.sousTitre = `Fournisseur ${l.fournisseur} · Reçu le ${fmtDateAnalyse(l.dateReception)} · ${l.matiere} · ${l.durete} · ${l.revetement}`
+      } else if (groupeAnalyse === 'fournisseur') {
+        g.sousTitre = `${new Set(g.bobines.map(b => b.lot)).size} lot(s)`
+      } else {
+        g.sousTitre = g.key.startsWith('Ø') ? 'Diamètre fil' : 'Feuillard'
+      }
+    }
+    res.sort((a, b) => groupeAnalyse === 'diametre' ? (numOf(a.key) - numOf(b.key) || a.key.localeCompare(b.key)) : a.key.localeCompare(b.key))
+    return res
+  }, [lignesAnalyse, groupeAnalyse])
+
+  // --- ANALYSE : totaux globaux ---
+  const analyseTotal = useMemo(() => {
+    let poidsInitial = 0, poidsStock = 0, poidsUsine = 0, nbSorties = 0, nbRetours = 0, nbRebuts = 0
+    for (const l of lignesAnalyse) {
+      poidsInitial += l.poidsInitial
+      if (l.lieu === 'STOCK_PRINCIPAL') poidsStock += l.poidsActuel
+      if (l.lieu === 'USINE') poidsUsine += l.poidsActuel
+      nbSorties += l.sortiesUsine.length
+      nbRetours += l.retoursUsine.length
+      if (l.dechets.length > 0) nbRebuts++
+    }
+    return { nbBobines: lignesAnalyse.length, poidsInitial, poidsStock, poidsUsine, nbSorties, nbRetours, nbRebuts }
+  }, [lignesAnalyse])
+
+  // --- ANALYSE : exports CSV ---
+  const handleExportAnalyseSynthese = () => {
+    const lignes: string[][] = [
+      ['Groupe', 'Lot', 'Fournisseur', 'N° commande', 'Type produit', 'Dimension', 'Code bobine', 'Poids initial (kg)', 'Date arrivée', 'Nb sorties usine', 'Dates sorties usine', 'Nb retours usine', 'Retours usine (date + poids kg)', 'Date mise en déchet', 'Poids actuel (kg)', 'Statut', 'Lieu actuel', 'N° commande fabrication', 'Matière', 'Dureté', 'Revêtement']
+    ]
+    for (const g of analyseGroupes) {
+      for (const l of g.bobines) {
+        lignes.push([
+          g.label,
+          l.lot,
+          l.fournisseur,
+          l.numCommande,
+          l.typeProduit,
+          l.dimension,
+          l.code,
+          l.poidsInitial.toFixed(2),
+          fmtDateAnalyse(l.arrivee),
+          String(l.sortiesUsine.length),
+          l.sortiesUsine.map(m => fmtDateAnalyse(m.date_mouvement)).join(' + '),
+          String(l.retoursUsine.length),
+          l.retoursUsine.map(m => `${fmtDateAnalyse(m.date_mouvement)} (${parseFloat(m.poids_mouvement).toFixed(2)} kg)`).join(' + '),
+          l.dechets.map(m => fmtDateAnalyse(m.date_mouvement)).join(' + '),
+          l.poidsActuel.toFixed(2),
+          LIBELLES_STATUT[l.statut] || l.statut,
+          LIBELLES_LIEU[l.lieu] || l.lieu,
+          l.numCmdFab || '',
+          l.matiere,
+          l.durete,
+          l.revetement
+        ])
+      }
+    }
+    telechargerCSV(`analyse_bobines_par_${groupeAnalyse}_${new Date().toISOString().split('T')[0]}.csv`, lignes)
+  }
+
+  const handleExportAnalyseDetail = () => {
+    const lignes: string[][] = [
+      ['Date', 'Heure', 'Groupe', 'Lot', 'Fournisseur', 'Dimension', 'Code bobine', 'Type de pointage', 'Poids pointé (kg)', 'Lieu', 'N° commande fabrication', 'Client', 'N° commande client', 'Note']
+    ]
+    for (const g of analyseGroupes) {
+      for (const l of g.bobines) {
+        for (const m of l.mvts) {
+          lignes.push([
+            fmtDateAnalyse(m.date_mouvement),
+            new Date(m.date_mouvement).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+            g.label,
+            l.lot,
+            l.fournisseur,
+            l.dimension,
+            l.code,
+            LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement,
+            parseFloat(m.poids_mouvement).toFixed(2),
+            m.lieu_destination || '',
+            l.numCmdFab || '',
+            m.client || '',
+            m.n_commande_client || '',
+            m.texte_libre || ''
+          ])
+        }
+      }
+    }
+    telechargerCSV(`analyse_bobines_mouvements_${new Date().toISOString().split('T')[0]}.csv`, lignes)
+  }
+
   // ================= RENDUS CONDITIONNELS =================
 
   if (!isAuthenticated) {
@@ -646,6 +875,7 @@ export default function Home() {
               <button onClick={() => setCurrentPage('usine')} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-6 rounded-xl text-lg shadow">➡️ Vers Usine</button>
               <button onClick={() => setCurrentPage('retour_usine')} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-6 rounded-xl text-lg shadow">🔙 Retour Usine</button>
               <button onClick={() => setCurrentPage('retour')} className="bg-red-600 hover:bg-red-700 text-white font-bold py-6 rounded-xl text-lg shadow">🗑️ Retour</button>
+              <button onClick={() => { setCurrentPage('analyse'); chargerAnalyse() }} className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-6 rounded-xl text-lg shadow">📈 Analyse mouvements</button>
             </div>
           </div>
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
@@ -809,6 +1039,100 @@ export default function Home() {
           </div>
         </div>
       </div>
+    )
+  }
+
+  // --- PAGE ANALYSE ---
+  if (currentPage === 'analyse') {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6"><div className="max-w-6xl mx-auto bg-white rounded-lg shadow-lg p-8">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-teal-900">📈 Analyse des mouvements</h1>
+          <div className="flex gap-2">
+            <button onClick={chargerAnalyse} className="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-md text-sm">🔄 Actualiser</button>
+            <button onClick={() => { setCurrentPage('autre'); setAutreSection('actions') }} className="text-red-600">✕</button>
+          </div>
+        </div>
+        <div className="bg-teal-50 border border-teal-200 rounded-md p-4 mb-6">
+          <label className="block text-sm font-medium mb-2">Analyser par :</label>
+          <div className="flex flex-wrap gap-2">
+            {([['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur'], ['diametre', '📏 Par diamètre']] as const).map(([k, lbl]) => (
+              <button key={k} onClick={() => setGroupeAnalyse(k)} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="bg-blue-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Bobines</p><p className="text-xl font-bold text-blue-800">{analyseTotal.nbBobines}</p></div>
+          <div className="bg-gray-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Poids initial total</p><p className="text-xl font-bold text-gray-800">{analyseTotal.poidsInitial.toFixed(2)} kg</p></div>
+          <div className="bg-green-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">En stock</p><p className="text-xl font-bold text-green-800">{analyseTotal.poidsStock.toFixed(2)} kg</p><p className="text-xs text-gray-500">En usine : {analyseTotal.poidsUsine.toFixed(2)} kg</p></div>
+          <div className="bg-purple-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Sorties usine / retours</p><p className="text-xl font-bold text-purple-800">{analyseTotal.nbSorties} / {analyseTotal.nbRetours}</p><p className="text-xs text-gray-500">Rebuts : {analyseTotal.nbRebuts}</p></div>
+        </div>
+        <div className="flex flex-wrap gap-3 mb-6">
+          <button onClick={handleExportAnalyseSynthese} className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-md text-sm font-semibold">📥 Exporter la synthèse (CSV)</button>
+          <button onClick={handleExportAnalyseDetail} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-md text-sm font-semibold">📥 Exporter le détail des mouvements (CSV)</button>
+        </div>
+        {chargementAnalyse ? <p className="text-center py-8 text-gray-500">Chargement…</p> : analyseGroupes.length === 0 ? <p className="text-center py-8 text-gray-500">Aucune donnée</p> : (
+          <div className="space-y-6">
+            {analyseGroupes.map(g => {
+              const pInit = g.bobines.reduce((s, l) => s + l.poidsInitial, 0)
+              const pStock = g.bobines.filter(l => l.lieu === 'STOCK_PRINCIPAL').reduce((s, l) => s + l.poidsActuel, 0)
+              const pUsine = g.bobines.filter(l => l.lieu === 'USINE').reduce((s, l) => s + l.poidsActuel, 0)
+              const nSorties = g.bobines.reduce((s, l) => s + l.sortiesUsine.length, 0)
+              const nRetours = g.bobines.reduce((s, l) => s + l.retoursUsine.length, 0)
+              const nRebuts = g.bobines.filter(l => l.dechets.length > 0).length
+              return (
+                <div key={g.key} className="border rounded-md overflow-hidden">
+                  <div className="bg-gray-100 px-4 py-2">
+                    <p className="font-bold text-gray-800">{g.icone} {g.label} <span className="text-xs font-normal text-gray-600">{g.sousTitre}</span></p>
+                    <p className="text-xs text-gray-600 mt-0.5">{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en stock {pStock.toFixed(2)} kg · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
+                  </div>
+                  <div className="overflow-x-auto"><table className="w-full text-sm">
+                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-left">Arrivée</th><th className="px-3 py-2 text-left">Sorties usine</th><th className="px-3 py-2 text-left">Retours usine</th><th className="px-3 py-2 text-left">Mise en déchet</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
+                    <tbody>
+                      {g.bobines.map(l => (
+                        <Fragment key={l.id}>
+                          <tr onClick={() => setBobineAnalyseDetail(bobineAnalyseDetail === l.id ? null : l.id)} className={`border-b cursor-pointer ${bobineAnalyseDetail === l.id ? 'bg-teal-50' : 'hover:bg-gray-50'}`}>
+                            <td className="px-3 py-2 font-mono font-semibold">{bobineAnalyseDetail === l.id ? '▾' : '▸'} {l.code}</td>
+                            <td className="px-3 py-2">{l.dimension}</td>
+                            <td className="px-3 py-2 text-right">{l.poidsInitial.toFixed(2)}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{fmtDateAnalyse(l.arrivee)}</td>
+                            <td className="px-3 py-2 text-xs">{l.sortiesUsine.length === 0 ? <span className="text-gray-400">-</span> : l.sortiesUsine.map((m, i) => <div key={i}>{fmtDateAnalyse(m.date_mouvement)}</div>)}</td>
+                            <td className="px-3 py-2 text-xs">{l.retoursUsine.length === 0 ? <span className="text-gray-400">-</span> : l.retoursUsine.map((m, i) => <div key={i}>{fmtDateAnalyse(m.date_mouvement)} ({parseFloat(m.poids_mouvement).toFixed(2)} kg)</div>)}</td>
+                            <td className="px-3 py-2 text-xs text-red-700">{l.dechets.map((m, i) => <div key={i}>🗑️ {fmtDateAnalyse(m.date_mouvement)}</div>)}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-green-800">{l.poidsActuel.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-xs">{LIBELLES_STATUT[l.statut] || l.statut}</td>
+                            <td className="px-3 py-2 text-xs">{LIBELLES_LIEU[l.lieu] || l.lieu}</td>
+                          </tr>
+                          {bobineAnalyseDetail === l.id && (
+                            <tr><td colSpan={10} className="bg-blue-50 px-4 py-3">
+                              <p className="text-xs font-semibold mb-2">Historique complet — {l.code}{l.numCmdFab ? ` · Cmd fab : ${l.numCmdFab}` : ''}</p>
+                              <table className="w-full text-xs">
+                                <thead><tr className="text-gray-600"><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1 pr-3">Pointage</th><th className="text-right py-1 pr-3">Poids (kg)</th><th className="text-left py-1 pr-3">Lieu</th><th className="text-left py-1 pr-3">Client</th><th className="text-left py-1">Note</th></tr></thead>
+                                <tbody>
+                                  {l.mvts.map(m => (
+                                    <tr key={m.id} className="border-t border-blue-100">
+                                      <td className="py-1 pr-3 whitespace-nowrap">{new Date(m.date_mouvement).toLocaleString('fr-FR')}</td>
+                                      <td className="py-1 pr-3">{LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement}</td>
+                                      <td className="py-1 pr-3 text-right font-semibold">{parseFloat(m.poids_mouvement).toFixed(2)}</td>
+                                      <td className="py-1 pr-3">{m.lieu_destination || '-'}</td>
+                                      <td className="py-1 pr-3">{m.client || '-'}</td>
+                                      <td className="py-1">{m.texte_libre || ''}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td></tr>
+                          )}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table></div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div></div>
     )
   }
 
