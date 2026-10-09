@@ -57,7 +57,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.24'
+const APP_VERSION = 'V1.25'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -330,6 +330,7 @@ export default function Home() {
   const [analyseDureteSel, setAnalyseDureteSel] = useState('')
   const [analyseRevSel, setAnalyseRevSel] = useState('')
   const [rechercheCmdFab, setRechercheCmdFab] = useState('')
+  const [analyseModeDetail, setAnalyseModeDetail] = useState(false)
 
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
   const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : 'https://stock-bobines.vercel.app'
@@ -688,7 +689,8 @@ export default function Home() {
       fournisseurs: Array.from(fourns.keys()).sort(),
       dimensions: Array.from(dims).sort((a, b) => numOf(a) - numOf(b) || a.localeCompare(b)),
       duretes: Array.from(duretes).sort(),
-      revetements: Array.from(revs).sort()
+      revetements: Array.from(revs).sort(),
+      cmdFabs: Array.from(new Set(lignesAnalyse.map(l => (l.numCmdFab || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }))
     }
   }, [lignesAnalyse])
 
@@ -715,6 +717,25 @@ export default function Home() {
       .filter(l => (l.numCmdFab || '').toUpperCase().includes(q))
       .sort((a, b) => a.code.localeCompare(b.code))
   }, [lignesAnalyse, rechercheCmdFab])
+
+  // Résumé de la recherche cmd fab : regroupement par n° de commande fabrication
+  const resumeCmdFab = useMemo(() => {
+    if (!resultatsCmdFab) return []
+    const m = new Map<string, LigneAnalyse[]>()
+    for (const l of resultatsCmdFab) {
+      const k = l.numCmdFab || '(sans n°)'
+      if (!m.has(k)) m.set(k, [])
+      m.get(k)!.push(l)
+    }
+    return Array.from(m.entries()).map(([cmd, bobines]) => ({
+      cmd,
+      nb: bobines.length,
+      pInit: bobines.reduce((s, l) => s + l.poidsInitial, 0),
+      pActuel: bobines.reduce((s, l) => s + l.poidsActuel, 0),
+      enStock: bobines.filter(l => l.lieu === 'STOCK_PRINCIPAL').length,
+      sorties: bobines.reduce((s, l) => s + l.sortiesUsine.length, 0)
+    })).sort((a, b) => a.cmd.localeCompare(b.cmd, 'fr', { numeric: true }))
+  }, [resultatsCmdFab])
 
   // Description textuelle de la sélection active (pour les exports CSV)
   const analysePeriodeActive = () => {
@@ -1173,8 +1194,16 @@ export default function Home() {
             </>)}
             <div>
               <label className="block text-xs text-gray-600 mb-1">🔍 N° commande fabrication</label>
-              <input value={rechercheCmdFab} onChange={e => setRechercheCmdFab(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" placeholder="ex : C3434" />
+              <input value={rechercheCmdFab} onChange={e => setRechercheCmdFab(e.target.value)} list="analyse-cmdfab" className="w-full px-3 py-2 border rounded-md text-sm" placeholder="Choisir ou saisir une cmd fab…" />
+              <datalist id="analyse-cmdfab">
+                {analyseOptions.cmdFabs.map(c => <option key={c} value={c} />)}
+              </datalist>
             </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <span className="text-xs text-gray-600 font-medium">Affichage :</span>
+            <button onClick={() => setAnalyseModeDetail(false)} className={`px-4 py-2 rounded-md text-sm ${!analyseModeDetail ? 'bg-teal-600 text-white' : 'bg-white border'}`}>📋 Mode résumé</button>
+            <button onClick={() => setAnalyseModeDetail(true)} className={`px-4 py-2 rounded-md text-sm ${analyseModeDetail ? 'bg-teal-600 text-white' : 'bg-white border'}`}>🔎 Mode détail</button>
           </div>
           {(analyseLotSel || analyseFournSel || analyseDimSel || analyseDureteSel || analyseRevSel || rechercheCmdFab) && (
             <button onClick={() => { setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSel(''); setAnalyseDureteSel(''); setAnalyseRevSel(''); setRechercheCmdFab('') }} className="mt-3 bg-white border border-teal-300 text-teal-700 px-3 py-1 rounded-md text-xs">✕ Réinitialiser les filtres</button>
@@ -1195,9 +1224,9 @@ export default function Home() {
             <div className="border rounded-md overflow-hidden">
               <div className="bg-blue-100 px-4 py-2">
                 <p className="font-bold text-gray-800">🔎 Cmd fab contenant « {rechercheCmdFab.trim()} » — {resultatsCmdFab.length} bobine(s) trouvée(s)</p>
-                <p className="text-xs text-gray-600 mt-0.5">Cliquer sur une ligne pour déplier ou replier son historique complet.</p>
+                <p className="text-xs text-gray-600 mt-0.5">{analyseModeDetail ? 'Cliquer sur une ligne pour déplier ou replier son historique complet.' : 'Activer le mode détail pour voir chaque bobine.'}</p>
               </div>
-              <div className="overflow-x-auto"><table className="w-full text-sm">
+              {analyseModeDetail ? (<div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Lot</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Cmd fab</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th></tr></thead>
                 <tbody>
                   {resultatsCmdFab.map(l => (
@@ -1234,7 +1263,23 @@ export default function Home() {
                     </Fragment>
                   ))}
                 </tbody>
-              </table></div>
+              </table></div>) : (
+                <div className="overflow-x-auto"><table className="w-full text-sm">
+                  <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Cmd fab</th><th className="px-3 py-2 text-right">Bobines</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-right">En stock</th><th className="px-3 py-2 text-right">Sorties usine</th></tr></thead>
+                  <tbody>
+                    {resumeCmdFab.map(r => (
+                      <tr key={r.cmd} className="border-b hover:bg-gray-50">
+                        <td className="px-3 py-2 font-mono font-semibold">{r.cmd}</td>
+                        <td className="px-3 py-2 text-right">{r.nb}</td>
+                        <td className="px-3 py-2 text-right">{r.pInit.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-green-800">{r.pActuel.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right">{r.enStock}</td>
+                        <td className="px-3 py-2 text-right">{r.sorties}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
+              )}
             </div>
           )
         ) : analyseGroupes.length === 0 ? <p className="text-center py-8 text-gray-500">Aucune donnée pour cette sélection</p> : (
@@ -1252,7 +1297,7 @@ export default function Home() {
                     <p className="font-bold text-gray-800">{g.icone} {g.label} <span className="text-xs font-normal text-gray-600">{g.sousTitre}</span></p>
                     <p className="text-xs text-gray-600 mt-0.5">{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en stock {pStock.toFixed(2)} kg · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
-                  <div className="overflow-x-auto"><table className="w-full text-sm">
+                  {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-sm">
                     <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-left">Arrivée</th><th className="px-3 py-2 text-left">Sorties usine</th><th className="px-3 py-2 text-left">Retours usine</th><th className="px-3 py-2 text-left">Mise en déchet</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
                     <tbody>
                       {g.bobines.map(l => (
@@ -1292,7 +1337,7 @@ export default function Home() {
                         </Fragment>
                       ))}
                     </tbody>
-                  </table></div>
+                  </table></div>)}
                 </div>
               )
             })}
