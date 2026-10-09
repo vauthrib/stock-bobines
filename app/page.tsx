@@ -57,7 +57,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.25'
+const APP_VERSION = 'V1.26'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -1294,7 +1294,7 @@ export default function Home() {
               return (
                 <div key={g.key} className="border rounded-md overflow-hidden">
                   <div className="bg-gray-100 px-4 py-2">
-                    <p className="font-bold text-gray-800">{g.icone} {g.label} <span className="text-xs font-normal text-gray-600">{g.sousTitre}</span></p>
+                    <p className="font-bold text-gray-800">{g.icone} {groupeAnalyse === 'lot' && g.bobines[0] ? `${g.bobines[0].dimension} · ${g.bobines[0].revetement} · ${g.bobines[0].durete} · ` : ''}{g.label} <span className="text-xs font-normal text-gray-600">{g.sousTitre}</span></p>
                     <p className="text-xs text-gray-600 mt-0.5">{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en stock {pStock.toFixed(2)} kg · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-sm">
