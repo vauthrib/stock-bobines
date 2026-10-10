@@ -57,7 +57,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.26'
+const APP_VERSION = 'V1.27'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -763,6 +763,11 @@ export default function Home() {
       } else {
         key = l.dimension
         icone = '📏'; label = l.dimension
+        // Dimension choisie : une ligne par dureté et revêtement
+        if (analyseDimSel) {
+          key = `${l.dimension} · ${l.durete} · ${l.revetement}`
+          label = `${l.dimension} · ${l.durete} · ${l.revetement}`
+        }
       }
       let g = groupes.get(key)
       if (!g) { g = { key, icone, label, sousTitre: '', bobines: [] }; groupes.set(key, g) }
@@ -778,11 +783,12 @@ export default function Home() {
         g.sousTitre = `${new Set(g.bobines.map(b => b.lot)).size} lot(s)`
       } else {
         g.sousTitre = g.key.startsWith('Ø') ? 'Diamètre fil' : 'Feuillard'
+        if (analyseDimSel) g.sousTitre = `${g.bobines.length} bobine(s) dans cette dureté et revêtement`
       }
     }
     res.sort((a, b) => groupeAnalyse === 'diametre' ? (numOf(a.key) - numOf(b.key) || a.key.localeCompare(b.key)) : a.key.localeCompare(b.key))
     return res
-  }, [analyseFiltrees, groupeAnalyse])
+  }, [analyseFiltrees, groupeAnalyse, analyseDimSel])
 
   // --- ANALYSE : totaux (sur le sous-ensemble filtré) ---
   const analyseTotal = useMemo(() => {
