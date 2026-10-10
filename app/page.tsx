@@ -57,7 +57,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.27'
+const APP_VERSION = 'V1.28'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -326,7 +326,7 @@ export default function Home() {
   // Sélection (filtres) de la page Analyse
   const [analyseLotSel, setAnalyseLotSel] = useState('')
   const [analyseFournSel, setAnalyseFournSel] = useState('')
-  const [analyseDimSel, setAnalyseDimSel] = useState('')
+  const [analyseDimSels, setAnalyseDimSels] = useState<string[]>([])
   const [analyseDureteSel, setAnalyseDureteSel] = useState('')
   const [analyseRevSel, setAnalyseRevSel] = useState('')
   const [rechercheCmdFab, setRechercheCmdFab] = useState('')
@@ -699,15 +699,15 @@ export default function Home() {
     let res = lignesAnalyse
     if (analyseLotSel) res = res.filter(l => `${l.fournisseur}-${l.numCommande}-${l.typeProduit}` === analyseLotSel)
     if (analyseFournSel) res = res.filter(l => l.fournisseur === analyseFournSel)
-    if (analyseDimSel) res = res.filter(l => l.dimension === analyseDimSel)
+    if (analyseDimSels.length) res = res.filter(l => analyseDimSels.includes(l.dimension))
     if (analyseDureteSel) res = res.filter(l => l.durete === analyseDureteSel)
     if (analyseRevSel) res = res.filter(l => l.revetement === analyseRevSel)
     return res
-  }, [lignesAnalyse, analyseLotSel, analyseFournSel, analyseDimSel, analyseDureteSel, analyseRevSel])
+  }, [lignesAnalyse, analyseLotSel, analyseFournSel, analyseDimSels, analyseDureteSel, analyseRevSel])
 
   // Duretés / revêtements proposés restreints à la dimension choisie (comme l'État du stock)
-  const analyseDuretesDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => !analyseDimSel || l.dimension === analyseDimSel).map(l => l.durete))).sort(), [lignesAnalyse, analyseDimSel])
-  const analyseRevsDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => (!analyseDimSel || l.dimension === analyseDimSel) && (!analyseDureteSel || l.durete === analyseDureteSel)).map(l => l.revetement))).sort(), [lignesAnalyse, analyseDimSel, analyseDureteSel])
+  const analyseDuretesDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => !analyseDimSels.length || analyseDimSels.includes(l.dimension)).map(l => l.durete))).sort(), [lignesAnalyse, analyseDimSels])
+  const analyseRevsDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => (!analyseDimSels.length || analyseDimSels.includes(l.dimension)) && (!analyseDureteSel || l.durete === analyseDureteSel)).map(l => l.revetement))).sort(), [lignesAnalyse, analyseDimSels, analyseDureteSel])
 
   // --- ANALYSE : recherche par n° de commande fabrication ---
   const resultatsCmdFab = useMemo(() => {
@@ -742,7 +742,7 @@ export default function Home() {
     const parts: string[] = []
     if (analyseLotSel) parts.push(`Lot ${analyseLotSel}`)
     if (analyseFournSel) parts.push(`Fournisseur ${analyseFournSel}`)
-    if (analyseDimSel) parts.push(`Dimension ${analyseDimSel}`)
+    if (analyseDimSels.length) parts.push(`Dimension ${analyseDimSels.join(', ')}`)
     if (analyseDureteSel) parts.push(`Dureté ${analyseDureteSel}`)
     if (analyseRevSel) parts.push(`Revêtement ${analyseRevSel}`)
     return parts.join(' + ')
@@ -763,8 +763,8 @@ export default function Home() {
       } else {
         key = l.dimension
         icone = '📏'; label = l.dimension
-        // Dimension choisie : une ligne par dureté et revêtement
-        if (analyseDimSel) {
+        // Dimension(s) choisie(s) : une ligne par couple Ø · dureté · revêtement
+        if (analyseDimSels.length) {
           key = `${l.dimension} · ${l.durete} · ${l.revetement}`
           label = `${l.dimension} · ${l.durete} · ${l.revetement}`
         }
@@ -783,12 +783,12 @@ export default function Home() {
         g.sousTitre = `${new Set(g.bobines.map(b => b.lot)).size} lot(s)`
       } else {
         g.sousTitre = g.key.startsWith('Ø') ? 'Diamètre fil' : 'Feuillard'
-        if (analyseDimSel) g.sousTitre = `${g.bobines.length} bobine(s) dans cette dureté et revêtement`
+        if (analyseDimSels.length) g.sousTitre = `${g.bobines.length} bobine(s) dans cette dureté et revêtement`
       }
     }
     res.sort((a, b) => groupeAnalyse === 'diametre' ? (numOf(a.key) - numOf(b.key) || a.key.localeCompare(b.key)) : a.key.localeCompare(b.key))
     return res
-  }, [analyseFiltrees, groupeAnalyse, analyseDimSel])
+  }, [analyseFiltrees, groupeAnalyse, analyseDimSels])
 
   // --- ANALYSE : totaux (sur le sous-ensemble filtré) ---
   const analyseTotal = useMemo(() => {
@@ -1153,7 +1153,7 @@ export default function Home() {
           <label className="block text-sm font-medium mb-2">Analyser par :</label>
           <div className="flex flex-wrap gap-2">
             {([['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur'], ['diametre', '📏 Par produit']] as const).map(([k, lbl]) => (
-              <button key={k} onClick={() => { setGroupeAnalyse(k); setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSel(''); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
+              <button key={k} onClick={() => { setGroupeAnalyse(k); setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
             ))}
           </div>
           <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1177,11 +1177,19 @@ export default function Home() {
             )}
             {groupeAnalyse === 'diametre' && (<>
               <div>
-                <label className="block text-xs text-gray-600 mb-1">Dimension (diamètre / feuillard)</label>
-                <select value={analyseDimSel} onChange={e => { setAnalyseDimSel(e.target.value); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className="w-full px-3 py-2 border rounded-md text-sm">
-                  <option value="">Toutes les dimensions</option>
-                  {analyseOptions.dimensions.map(d => (<option key={d} value={d}>{d}</option>))}
-                </select>
+                <label className="block text-xs text-gray-600 mb-1">Dimension (diamètre / feuillard) : plusieurs possibles</label>
+                <details className="relative">
+                  <summary className="w-full px-3 py-2 border rounded-md text-sm bg-white cursor-pointer list-none">{analyseDimSels.length === 0 ? 'Toutes les dimensions' : `${analyseDimSels.length} dimension(s) : ${analyseDimSels.join(', ')}`}</summary>
+                  <div className="absolute z-10 mt-1 w-full max-h-72 overflow-y-auto bg-white border rounded-md shadow-lg p-2">
+                    <button type="button" onClick={() => { setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className="w-full text-left text-xs text-teal-700 px-2 py-1 hover:bg-teal-50 rounded">Toutes les dimensions</button>
+                    {analyseOptions.dimensions.map(d => (
+                      <label key={d} className="flex items-center gap-2 px-2 py-1 text-sm hover:bg-gray-50 rounded cursor-pointer">
+                        <input type="checkbox" checked={analyseDimSels.includes(d)} onChange={() => { setAnalyseDimSels(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]); setAnalyseDureteSel(''); setAnalyseRevSel('') }} />
+                        {d}
+                      </label>
+                    ))}
+                  </div>
+                </details>
               </div>
               <div>
                 <label className="block text-xs text-gray-600 mb-1">Dureté</label>
@@ -1211,8 +1219,8 @@ export default function Home() {
             <button onClick={() => setAnalyseModeDetail(false)} className={`px-4 py-2 rounded-md text-sm ${!analyseModeDetail ? 'bg-teal-600 text-white' : 'bg-white border'}`}>📋 Mode résumé</button>
             <button onClick={() => setAnalyseModeDetail(true)} className={`px-4 py-2 rounded-md text-sm ${analyseModeDetail ? 'bg-teal-600 text-white' : 'bg-white border'}`}>🔎 Mode détail</button>
           </div>
-          {(analyseLotSel || analyseFournSel || analyseDimSel || analyseDureteSel || analyseRevSel || rechercheCmdFab) && (
-            <button onClick={() => { setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSel(''); setAnalyseDureteSel(''); setAnalyseRevSel(''); setRechercheCmdFab('') }} className="mt-3 bg-white border border-teal-300 text-teal-700 px-3 py-1 rounded-md text-xs">✕ Réinitialiser les filtres</button>
+          {(analyseLotSel || analyseFournSel || analyseDimSels.length > 0 || analyseDureteSel || analyseRevSel || rechercheCmdFab) && (
+            <button onClick={() => { setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel(''); setRechercheCmdFab('') }} className="mt-3 bg-white border border-teal-300 text-teal-700 px-3 py-1 rounded-md text-xs">✕ Réinitialiser les filtres</button>
           )}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
