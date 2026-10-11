@@ -1,10 +1,10 @@
 
 'use client'
 
-import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
+import { useState, useEffect, useRef, useMemo, Fragment, type CSSProperties } from 'react'
 import { Html5QrcodeScanner } from 'html5-qrcode'
 import { QRCodeSVG } from 'qrcode.react'
-import { couleurRevetement, REVETEMENTS_BASE } from '@/lib/revetement'
+import { REVETEMENTS_BASE, couleurRevetementDefaut, classeStyleDurete, COULEURS_PROPOSEES, STYLES_DURETE } from '@/lib/revetement'
 import { nombreCsv } from '@/lib/csv'
 
 // ================= TYPES =================
@@ -80,7 +80,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.40'
+const APP_VERSION = 'V1.41'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -177,8 +177,17 @@ type LigneAnalyse = {
   mvts: MvtAnalyse[]
 }
 
-// Morceau de libellé d'un groupe d'analyse ; rev = revêtement à colorer
-type PartieLibelle = { t: string; rev?: string }
+// Couleur et style d'affichage d'un item personnalisé (Administration > Items)
+type ItemRegle = { id: number | string; nom: string; couleur?: string | null; style?: string | null }
+
+const couleursDepuisItems = (items: ItemRegle[]): Record<string, string> =>
+  Object.fromEntries(items.filter(i => i.couleur).map(i => [(i.nom || '').trim().toLowerCase(), i.couleur as string]))
+
+const stylesDepuisItems = (items: ItemRegle[]): Record<string, string> =>
+  Object.fromEntries(items.filter(i => i.style).map(i => [(i.nom || '').trim().toLowerCase(), i.style as string]))
+
+// Morceau de libellé d'un groupe d'analyse ; rev = revêtement à colorer, dur = dureté à styler
+type PartieLibelle = { t: string; rev?: string; dur?: string }
 type GroupeAnalyse = { key: string; icone: string; label: string; sousTitre: string; parties: PartieLibelle[]; sousTitreParts: PartieLibelle[]; bobines: LigneAnalyse[] }
 
 const LIBELLES_STATUT: Record<string, string> = { EN_STOCK: 'En stock', PARTIELLE: 'Partielle', VIDE: 'Vide', DECHET: 'Déchet' }
@@ -228,7 +237,14 @@ function ItemsManager({ onItemsChange }: { onItemsChange: () => void }) {
   const [items, setItems] = useState<any[]>([])
   const [cat, setCat] = useState<'MATIERE' | 'DURETE' | 'REVETEMENT'>('MATIERE')
   const [nouveau, setNouveau] = useState('')
+  const [nouvelleCouleur, setNouvelleCouleur] = useState('')
   const [edit, setEdit] = useState<any>(null)
+
+  // Aperçu d'un item : couleur configurée (revêtement) sinon couleur par défaut, style (dureté)
+  const couleurItem = (i: { nom: string; couleur?: string | null }) => {
+    const hex = cat === 'REVETEMENT' ? (i.couleur || couleurRevetementDefaut(i.nom)) : null
+    return hex ? { color: hex } : undefined
+  }
 
   useEffect(() => {
     try { fetch(`/api/items?categorie=${cat}`).then(r => r.json()).then(setItems) } catch (e) { }
@@ -240,10 +256,10 @@ function ItemsManager({ onItemsChange }: { onItemsChange: () => void }) {
       const r = await fetch('/api/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categorie: cat, nom: nouveau.trim() })
+        body: JSON.stringify({ categorie: cat, nom: nouveau.trim(), couleur: cat === 'REVETEMENT' ? (nouvelleCouleur || null) : null })
       })
       if (r.ok) {
-        setNouveau('')
+        setNouveau(''); setNouvelleCouleur('')
         try { fetch(`/api/items?categorie=${cat}`).then(r => r.json()).then(setItems); onItemsChange() } catch (e) { }
       } else alert((await r.json()).error)
     } catch (e) { alert('❌') }
@@ -255,7 +271,12 @@ function ItemsManager({ onItemsChange }: { onItemsChange: () => void }) {
       const r = await fetch('/api/items', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: i.id, nom: n.trim() })
+        body: JSON.stringify({
+          id: i.id,
+          nom: n.trim(),
+          couleur: cat === 'REVETEMENT' ? (edit?.couleur || null) : null,
+          style: cat === 'DURETE' ? (edit?.style || null) : null
+        })
       })
       if (r.ok) {
         setEdit(null)
@@ -281,22 +302,56 @@ function ItemsManager({ onItemsChange }: { onItemsChange: () => void }) {
           <button key={c} onClick={() => setCat(c)} className={`px-4 py-2 rounded-md ${cat === c ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>{lab[c]}</button>
         ))}
       </div>
-      <div className="flex gap-2">
-        <input value={nouveau} onChange={e => setNouveau(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} className="flex-1 px-4 py-2 border rounded-md" placeholder={`Nouveau ${lab[cat].toLowerCase()}...`} />
+      <div className="flex flex-wrap gap-2">
+        <input value={nouveau} onChange={e => setNouveau(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} className="flex-1 min-w-40 px-4 py-2 border rounded-md" placeholder={`Nouveau ${lab[cat].toLowerCase()}...`} />
+        {cat === 'REVETEMENT' && (
+          <>
+            <select value={COULEURS_PROPOSEES.some(c => c.valeur === nouvelleCouleur) ? nouvelleCouleur : ''} onChange={e => setNouvelleCouleur(e.target.value)} className="px-3 py-2 border rounded-md text-sm">
+              <option value="">Couleur par défaut</option>
+              {COULEURS_PROPOSEES.map(c => (<option key={c.valeur} value={c.valeur}>{c.nom}</option>))}
+            </select>
+            <input type="color" value={nouvelleCouleur || '#000000'} onChange={e => setNouvelleCouleur(e.target.value)} className="h-10 w-12 border rounded-md" title="Couleur personnalisée" />
+          </>
+        )}
         <button onClick={add} className="bg-green-600 text-white px-4 py-2 rounded-md">➕ Ajouter</button>
       </div>
+      {cat === 'REVETEMENT' && <p className="text-xs text-gray-500">{'Couleur du texte de ce revêtement dans les listes, l\'analyse, les étiquettes et l\'état du stock. Modifiable avec ✏️.'}</p>}
+      {cat === 'DURETE' && <p className="text-xs text-gray-500">{'Style de cette dureté partout où elle apparaît. Modifiable avec ✏️ (cumulable).'}</p>}
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {items.length === 0 ? <p className="text-center py-4 text-gray-500">Aucun</p> : items.map(i => (
           <div key={i.id} className="flex items-center gap-2 p-2 border rounded-md">
             {edit?.id === i.id ? (
-              <>
-                <input value={edit.nom} onChange={e => setEdit({ ...edit, nom: e.target.value })} onKeyDown={e => e.key === 'Enter' && upd(i, edit.nom)} className="flex-1 px-3 py-1 border rounded-md" autoFocus />
+              <div className="flex flex-wrap items-center gap-2 w-full">
+                <input value={edit.nom} onChange={e => setEdit({ ...edit, nom: e.target.value })} onKeyDown={e => e.key === 'Enter' && upd(i, edit.nom)} className="flex-1 min-w-40 px-3 py-1 border rounded-md" autoFocus />
+                {cat === 'REVETEMENT' && (
+                  <>
+                    <select value={COULEURS_PROPOSEES.some(c => c.valeur === edit.couleur) ? edit.couleur : ''} onChange={e => setEdit({ ...edit, couleur: e.target.value })} className="px-2 py-1 border rounded-md text-sm">
+                      <option value="">Couleur par défaut</option>
+                      {COULEURS_PROPOSEES.map(c => (<option key={c.valeur} value={c.valeur}>{c.nom}</option>))}
+                    </select>
+                    <input type="color" value={edit.couleur || couleurRevetementDefaut(edit.nom) || '#000000'} onChange={e => setEdit({ ...edit, couleur: e.target.value })} className="h-8 w-10 border rounded-md" title="Couleur personnalisée" />
+                  </>
+                )}
+                {cat === 'DURETE' && (
+                  <div className="flex flex-wrap gap-2">
+                    {STYLES_DURETE.map(s => (
+                      <label key={s.token} className="flex items-center gap-1 text-xs border rounded-md px-2 py-1">
+                        <input type="checkbox" checked={(edit.style || '').split(',').includes(s.token)} onChange={e => {
+                          const tokens: string[] = String(edit.style || '').split(',').filter(Boolean)
+                          const suivants = e.target.checked ? [...tokens, s.token] : tokens.filter(t => t !== s.token)
+                          setEdit({ ...edit, style: suivants.join(',') })
+                        }} />
+                        <span className={s.classe}>{s.libelle}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <button onClick={() => upd(i, edit.nom)} className="bg-green-600 text-white px-3 py-1 rounded text-sm">✓</button>
                 <button onClick={() => setEdit(null)} className="bg-gray-400 text-white px-3 py-1 rounded text-sm">✕</button>
-              </>
+              </div>
             ) : (
               <>
-                <span className="flex-1 font-medium">{i.nom}</span>
+                <span className={`flex-1 font-medium ${classeStyleDurete(i.style)}`} style={couleurItem(i)}>{i.nom}</span>
                 <button onClick={() => setEdit({ ...i })} className="bg-blue-600 text-white px-3 py-1 rounded text-sm">✏️</button>
                 <button onClick={() => del(i.id)} className="bg-red-600 text-white px-3 py-1 rounded text-sm">🗑️</button>
               </>
@@ -354,6 +409,9 @@ export default function Home() {
   const [itemsMatiere, setItemsMatiere] = useState<any[]>([])
   const [itemsDurete, setItemsDurete] = useState<any[]>([])
   const [itemsRev, setItemsRev] = useState<any[]>([])
+  // Couleurs de revêtement et styles de dureté configurés (Administration > Items)
+  const [couleursRev, setCouleursRev] = useState<Record<string, string>>({})
+  const [stylesDurete, setStylesDurete] = useState<Record<string, string>>({})
   const [backupFile, setBackupFile] = useState<File | null>(null)
 
   // --- Lots ---
@@ -421,12 +479,22 @@ export default function Home() {
       const [m, d, r] = await Promise.all([
         fetch('/api/items?categorie=MATIERE'), fetch('/api/items?categorie=DURETE'), fetch('/api/items?categorie=REVETEMENT')
       ])
-      const revs = await r.json() as { id: number | string, nom: string }[]
+      const revs = await r.json() as ItemRegle[]
+      const duretes = await d.json() as ItemRegle[]
       const nomsRev = new Set(revs.map(i => (i.nom || '').toLowerCase()))
-      setItemsMatiere(await m.json()); setItemsDurete(await d.json())
+      setItemsMatiere(await m.json()); setItemsDurete(duretes)
       setItemsRev([...revs, ...REVETEMENTS_BASE.filter(nom => !nomsRev.has(nom.toLowerCase())).map(nom => ({ id: `base-${nom}`, nom }))])
+      setCouleursRev(couleursDepuisItems(revs))
+      setStylesDurete(stylesDepuisItems(duretes))
     } catch (e) { console.error(e) }
   }
+  // --- AFFICHAGE configurable des items (Administration > Items) ---
+  const couleurRevItem = (nom?: string | null): CSSProperties | undefined => {
+    const hex = couleursRev[(nom || '').trim().toLowerCase()] || couleurRevetementDefaut(nom)
+    return hex ? { color: hex } : undefined
+  }
+  const classeDurete = (nom?: string | null) => classeStyleDurete(stylesDurete[(nom || '').trim().toLowerCase()])
+
   const chargerLots = async () => { try { const res = await fetch('/api/lots'); setLots(await res.json()) } catch (e) { } }
   const chargerUsers = async () => { try { const res = await fetch('/api/users'); setUsers(await res.json()) } catch (e) { } }
   const chargerHistory = async () => { try { const res = await fetch('/api/auth/history?limit=100'); setHistory(await res.json()) } catch (e) { } }
@@ -833,7 +901,7 @@ export default function Home() {
       if (groupeAnalyse === 'lot') {
         key = `${l.fournisseur}-${l.numCommande}-${l.typeProduit}`
         label = `Lot ${l.lot}`
-        parties = [{ t: l.dimension }, { t: l.revetement, rev: l.revetement }, { t: l.durete }]
+        parties = [{ t: l.dimension }, { t: l.revetement, rev: l.revetement }, { t: l.durete, dur: l.durete }]
       } else if (groupeAnalyse === 'fournisseur') {
         key = l.fournisseur
         icone = '🏭'; label = l.fournisseur
@@ -844,7 +912,7 @@ export default function Home() {
         if (analyseDimSels.length) {
           key = `${l.dimension} · ${l.durete} · ${l.revetement}`
           label = ''
-          parties = [{ t: l.dimension }, { t: l.durete }, { t: l.revetement, rev: l.revetement }]
+          parties = [{ t: l.dimension }, { t: l.durete, dur: l.durete }, { t: l.revetement, rev: l.revetement }]
         }
       }
       let g = groupes.get(key)
@@ -858,7 +926,7 @@ export default function Home() {
         const l = g.bobines[0]
         if (l) {
           g.sousTitre = `Fournisseur ${l.fournisseur} · Reçu le ${fmtDateAnalyse(l.dateReception)} · ${l.matiere} · ${l.durete} · ${l.revetement}`
-          g.sousTitreParts = [{ t: `Fournisseur ${l.fournisseur}` }, { t: `Reçu le ${fmtDateAnalyse(l.dateReception)}` }, { t: l.matiere }, { t: l.durete }, { t: l.revetement, rev: l.revetement }]
+          g.sousTitreParts = [{ t: `Fournisseur ${l.fournisseur}` }, { t: `Reçu le ${fmtDateAnalyse(l.dateReception)}` }, { t: l.matiere }, { t: l.durete, dur: l.durete }, { t: l.revetement, rev: l.revetement }]
         }
       } else if (groupeAnalyse === 'fournisseur') {
         g.sousTitre = `${new Set(g.bobines.map(b => b.lot)).size} lot(s)`
@@ -976,7 +1044,7 @@ export default function Home() {
       <>
         <div className="min-h-screen bg-gray-50 p-2 sm:p-6"><div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-3 sm:p-8">
           <div className="flex flex-wrap justify-between items-center gap-2 mb-6"><h1 className="text-lg sm:text-2xl font-bold text-blue-900">🏷️ {bobinesToPrint.length} étiquette(s)</h1><div className="flex gap-2"><button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-md">🖨️ Imprimer</button><button onClick={() => { setShowEtiquette(false); setBobinesToPrint([]) }} className="text-red-600 px-4">✕</button></div></div>
-          <div id="etiquettes-grid">{bobinesToPrint.map((b, i) => { const r = b.reception; const dim = r.type_materiel === 'Fil' ? `Ø${r.diametre_fil}` : `${r.largeur_feuillard}x${r.longueur_feuillard}`; return (<div key={i} className="etiquette"><div className="etiquette-content"><div className="etiquette-left"><p className="etiquette-header">{r.code_fournisseur} Cmd {r.num_commande}</p><p className="etiquette-code">{b.code_bobine}</p><p className="etiquette-gros text-blue-800">{dim}</p><p className="etiquette-gros text-green-800">{b.poids_initial} kg</p><p className="etiquette-gros">{r.matiere}</p><p className="etiquette-gros">{r.durete}</p><p className={`etiquette-gros ${couleurRevetement(r.revetement)}`}>{r.revetement}</p></div><div className="etiquette-right"><QRCodeSVG value={`${baseUrl}/bobine/${b.code_bobine}`} size={90} /></div></div></div>) })}</div>
+          <div id="etiquettes-grid">{bobinesToPrint.map((b, i) => { const r = b.reception; const dim = r.type_materiel === 'Fil' ? `Ø${r.diametre_fil}` : `${r.largeur_feuillard}x${r.longueur_feuillard}`; return (<div key={i} className="etiquette"><div className="etiquette-content"><div className="etiquette-left"><p className="etiquette-header">{r.code_fournisseur} Cmd {r.num_commande}</p><p className="etiquette-code">{b.code_bobine}</p><p className="etiquette-gros text-blue-800">{dim}</p><p className="etiquette-gros text-green-800">{b.poids_initial} kg</p><p className="etiquette-gros">{r.matiere}</p><p className={`etiquette-gros ${classeDurete(r.durete)}`}>{r.durete}</p><p className="etiquette-gros" style={couleurRevItem(r.revetement)}>{r.revetement}</p></div><div className="etiquette-right"><QRCodeSVG value={`${baseUrl}/bobine/${b.code_bobine}`} size={90} /></div></div></div>) })}</div>
         </div></div>
         <style jsx global>{`.etiquette-header{font-size:.7rem;font-weight:bold}.etiquette-code{font-size:.85rem;font-family:monospace;font-weight:bold}.etiquette-gros{font-size:1.4rem;font-weight:bold;line-height:1.05}@media print{body *{visibility:hidden}#etiquettes-grid,#etiquettes-grid *{visibility:visible}#etiquettes-grid{position:absolute;left:0;top:0;width:210mm;display:grid;grid-template-columns:repeat(3,62mm);grid-template-rows:repeat(3,90mm);gap:3mm;padding:10mm}.etiquette{width:62mm;height:90mm;border:1px solid #000;padding:2mm;page-break-inside:avoid;box-sizing:border-box}.etiquette-content{display:flex;height:100%;gap:2mm}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center}.etiquette-right{display:flex;align-items:center;justify-content:center}.etiquette-header{font-size:.6rem}.etiquette-code{font-size:.7rem}.etiquette-gros{font-size:1.15rem}@page{size:A4 portrait;margin:0}}@media screen{#etiquettes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.etiquette{border:2px solid #000;padding:8px;min-height:200px}.etiquette-content{display:flex;height:100%;gap:10px}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center}.etiquette-right{display:flex;align-items:center;justify-content:center}}`}</style>
       </>
@@ -1168,7 +1236,7 @@ export default function Home() {
                                 <td className="px-3 py-2 text-xs whitespace-nowrap">{d.toLocaleDateString('fr-FR')}</td>
                                 <td className="px-3 py-2 text-xs whitespace-nowrap">{d.toLocaleTimeString('fr-FR')}</td>
                                 <td className="px-3 py-2 font-mono font-semibold">{o.code_bobine}</td>
-                                <td className="px-3 py-2 text-xs">{o.dimension} <span className={couleurRevetement(o.revetement)}>{o.revetement}</span></td>
+                                <td className="px-3 py-2 text-xs">{o.dimension} <span style={couleurRevItem(o.revetement)}>{o.revetement}</span></td>
                                 <td className={`px-3 py-2 text-xs font-semibold ${sens ? sens.classe : 'text-gray-700'}`}>{sens ? sens.label : o.type_mouvement}</td>
                                 <td className="px-3 py-2 text-right font-semibold">{parseFloat(o.poids_mouvement).toFixed(2)}</td>
                                 <td className="px-3 py-2 text-xs">{LIBELLES_LIEU[o.lieu_destination || ''] || '-'}</td>
@@ -1318,7 +1386,7 @@ export default function Home() {
                 <label className="block text-xs text-gray-600 mb-1">Revêtement</label>
                 <select value={analyseRevSel} onChange={e => setAnalyseRevSel(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
                   <option value="">Tous les revêtements</option>
-                  {analyseRevsDispo.map(r => (<option key={r} value={r} className={couleurRevetement(r)}>{r}</option>))}
+                  {analyseRevsDispo.map(r => (<option key={r} value={r} style={couleurRevItem(r)}>{r}</option>))}
                 </select>
               </div>
             </>)}
@@ -1441,7 +1509,7 @@ export default function Home() {
               return (
                 <div key={g.key} className="border rounded-md overflow-hidden">
                   <div className="bg-gray-100 px-4 py-2">
-                    <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span className={couleurRevetement(p.rev)}>{p.t}</span> : (groupeAnalyse === 'diametre' && i === 0 ? <span className="text-lg sm:text-xl">{p.t}</span> : p.t)}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{groupeAnalyse === 'diametre' && g.label ? <span className="text-lg sm:text-xl">{g.label}</span> : g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span className={couleurRevetement(p.rev)}>{p.t}</span> : p.t}</Fragment>)) : g.sousTitre}</span></p>
+                    <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : (groupeAnalyse === 'diametre' && i === 0 ? <span className="text-lg sm:text-xl">{p.t}</span> : p.t)}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{groupeAnalyse === 'diametre' && g.label ? <span className="text-lg sm:text-xl">{g.label}</span> : g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : p.t}</Fragment>)) : g.sousTitre}</span></p>
                     <p className="text-xs text-gray-600 mt-0.5"><span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
@@ -1558,7 +1626,7 @@ export default function Home() {
         <span className="font-semibold text-green-900">📦 Total affiché :</span>
         <span className="text-green-800 font-bold text-lg">{totalPoidsEtat.toFixed(2)} kg <span className="text-sm font-normal text-green-700">({totalNbEtat} bobines)</span></span>
       </div>
-      <div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th><th className="px-3 py-2 text-center">Mouvements</th></tr></thead><tbody>{etatFiltre.length === 0 ? <tr><td colSpan={6} className="text-center py-4 text-gray-500">Aucune donnée</td></tr> : etatFiltre.map((i, idx) => (<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className="px-3 py-2">{i.durete}</td><td className={`px-3 py-2 ${couleurRevetement(i.revetement)}`}>{i.revetement}</td><td className="px-3 py-2 text-right">{i.nb}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids.toFixed(2)} kg</td><td className="px-3 py-2 text-center"><button onClick={() => voirMouvementsProduit(i)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">📈 Mouvements</button></td></tr>))}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th><th className="px-3 py-2 text-center">Mouvements</th></tr></thead><tbody>{etatFiltre.length === 0 ? <tr><td colSpan={6} className="text-center py-4 text-gray-500">Aucune donnée</td></tr> : etatFiltre.map((i, idx) => (<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className={`px-3 py-2 ${classeDurete(i.durete)}`}>{i.durete}</td><td className="px-3 py-2" style={couleurRevItem(i.revetement)}>{i.revetement}</td><td className="px-3 py-2 text-right">{i.nb}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids.toFixed(2)} kg</td><td className="px-3 py-2 text-center"><button onClick={() => voirMouvementsProduit(i)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">📈 Mouvements</button></td></tr>))}</tbody></table></div>
     </div></div>)
   }
 

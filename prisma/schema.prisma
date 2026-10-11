@@ -66,6 +66,8 @@ model ItemPersonnalise {
   categorie       CategorieItem
   nom             String          @db.VarChar(50)
   ordre           Int             @default(0)
+  couleur         String?         @db.VarChar(20)
+  style           String?         @db.VarChar(50)
   
   @@unique([categorie, nom])
   @@map("items_personnalises")

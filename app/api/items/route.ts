@@ -28,7 +28,9 @@ export async function POST(request: NextRequest) {
       data: {
         categorie: data.categorie,
         nom: data.nom,
-        ordre: data.ordre || 0
+        ordre: data.ordre || 0,
+        couleur: data.couleur || null,
+        style: data.style || null
       }
     })
 
@@ -50,7 +52,9 @@ export async function PUT(request: NextRequest) {
       where: { id: data.id },
       data: {
         nom: data.nom,
-        ordre: data.ordre
+        ordre: data.ordre,
+        ...(data.couleur !== undefined ? { couleur: data.couleur || null } : {}),
+        ...(data.style !== undefined ? { style: data.style || null } : {})
       }
     })
 

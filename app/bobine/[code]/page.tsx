@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-import { couleurRevetement } from '@/lib/revetement'
+import { couleurRevetementDefaut, classeStyleDurete } from '@/lib/revetement'
 
 type Bobine = {
   id: number
@@ -41,11 +41,33 @@ export default function BobinePage() {
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState('')
 
+  // Couleurs de revêtement et styles de dureté configurés dans l'administration
+  const [couleursRev, setCouleursRev] = useState<Record<string, string>>({})
+  const [stylesDurete, setStylesDurete] = useState<Record<string, string>>({})
+  const couleurRevItem = (nom?: string | null) => {
+    const hex = couleursRev[(nom || '').trim().toLowerCase()] || couleurRevetementDefaut(nom)
+    return hex ? { color: hex } : undefined
+  }
+  const classeDurete = (nom?: string | null) => classeStyleDurete(stylesDurete[(nom || '').trim().toLowerCase()])
+
   const [showAction, setShowAction] = useState<'usine' | 'stock' | 'rebut' | 'rebut_partiel' | null>(null)
   const [numCommande, setNumCommande] = useState('')
   const [poidsRestant, setPoidsRestant] = useState('')
   const [commentaireRebut, setCommentaireRebut] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
+
+  // Réglages d'affichage des items (couleur des revêtements, style des duretés)
+  const chargerReglagesItems = async () => {
+    try {
+      const [r, d] = await Promise.all([
+        fetch('/api/items?categorie=REVETEMENT'), fetch('/api/items?categorie=DURETE')
+      ])
+      const revs = await r.json() as { nom: string, couleur?: string | null }[]
+      const duretes = await d.json() as { nom: string, style?: string | null }[]
+      setCouleursRev(Object.fromEntries(revs.filter(i => i.couleur).map(i => [i.nom.trim().toLowerCase(), i.couleur as string])))
+      setStylesDurete(Object.fromEntries(duretes.filter(i => i.style).map(i => [i.nom.trim().toLowerCase(), i.style as string])))
+    } catch (err) { console.error(err) }
+  }
 
   useEffect(() => {
     // Vérifier si authentifié aujourd'hui
@@ -56,7 +78,7 @@ export default function BobinePage() {
       if (date === today) {
         setIsAuthenticated(true)
         setCurrentUser(user)
-        chargerBobine()
+        chargerBobine(); chargerReglagesItems()
         return
       } else {
         // Supprimer l'ancienne auth si ce n'est pas aujourd'hui
@@ -110,7 +132,7 @@ export default function BobinePage() {
         }))
         setIsAuthenticated(true)
         setCurrentUser(data.user)
-        chargerBobine()
+        chargerBobine(); chargerReglagesItems()
       } else {
         setAuthError(data.error || 'Erreur de connexion')
       }
@@ -437,8 +459,8 @@ export default function BobinePage() {
 
           <div className="space-y-2 text-sm">
             <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Matière</span><span className="font-semibold">{r.matiere}</span></div>
-            <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Dureté</span><span className="font-semibold">{r.durete}</span></div>
-            <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Revêtement</span><span className={`font-semibold ${couleurRevetement(r.revetement)}`}>{r.revetement}</span></div>
+            <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Dureté</span><span className={`font-semibold ${classeDurete(r.durete)}`}>{r.durete}</span></div>
+            <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Revêtement</span><span className="font-semibold" style={couleurRevItem(r.revetement)}>{r.revetement}</span></div>
             <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Poids initial</span><span className="font-semibold">{bobine.poids_initial} kg</span></div>
             <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Date réception</span><span className="font-semibold">{new Date(r.date_reception).toLocaleDateString('fr-FR')}</span></div>
             {bobine.num_commande_fabrication && (<div className="flex justify-between py-2 border-b"><span className="text-gray-600">Commande fabrication</span><span className="font-semibold">{bobine.num_commande_fabrication}</span></div>)}
