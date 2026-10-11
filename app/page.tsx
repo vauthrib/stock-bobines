@@ -6,6 +6,7 @@ import { Html5QrcodeScanner } from 'html5-qrcode'
 import { QRCodeSVG } from 'qrcode.react'
 import { REVETEMENTS_BASE, couleurRevetementDefaut, classeStyleDurete, COULEURS_PROPOSEES, STYLES_DURETE } from '@/lib/revetement'
 import { nombreCsv } from '@/lib/csv'
+import { isoJour, jourIlYaMois, mouvementsPeriode, poidsMouvements, libellePeriode, poidsLorsMouvements, poidsAffiche, versUsine, dansPeriode } from '@/lib/analyse'
 
 // ================= TYPES =================
 
@@ -80,7 +81,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.41'
+const APP_VERSION = 'V1.42'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -176,6 +177,9 @@ type LigneAnalyse = {
   dechets: MvtAnalyse[]
   mvts: MvtAnalyse[]
 }
+
+// Un changement de lieu (stock → usine) d'une bobine, avec le poids qui a changé de lieu
+type TransfertBobine = { mvt: MvtAnalyse; poids: number }
 
 // Couleur et style d'affichage d'un item personnalisé (Administration > Items)
 type ItemRegle = { id: number | string; nom: string; couleur?: string | null; style?: string | null }
@@ -443,7 +447,7 @@ export default function Home() {
   const [analyseBobines, setAnalyseBobines] = useState<BobineAnalyse[]>([])
   const [chargementAnalyse, setChargementAnalyse] = useState(false)
   // Par défaut : analyse par produit (dimension / dureté / revêtement)
-  const [groupeAnalyse, setGroupeAnalyse] = useState<'lot' | 'fournisseur' | 'diametre'>('diametre')
+  const [groupeAnalyse, setGroupeAnalyse] = useState<'lot' | 'fournisseur' | 'diametre' | 'mouvements'>('diametre')
   const [bobineAnalyseDetail, setBobineAnalyseDetail] = useState<number | null>(null)
   // Sélection (filtres) de la page Analyse
   const [analyseLotSel, setAnalyseLotSel] = useState('')
@@ -453,6 +457,10 @@ export default function Home() {
   const [analyseRevSel, setAnalyseRevSel] = useState('')
   const [rechercheCmdFab, setRechercheCmdFab] = useState('')
   const [analyseModeDetail, setAnalyseModeDetail] = useState(false)
+  // Analyse par mouvements : période des transferts stock → usine
+  const [mouvDebut, setMouvDebut] = useState('')
+  const [mouvFin, setMouvFin] = useState('')
+  const [mouvPreset, setMouvPreset] = useState<'tout' | '3m' | '6m' | '12m' | 'perso'>('tout')
 
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
   const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : 'https://stock-bobines.vercel.app'
@@ -782,6 +790,15 @@ export default function Home() {
   // --- ANALYSE : extraction des événements par bobine ---
   const fmtDateAnalyse = (v: string) => new Date(v).toLocaleDateString('fr-FR')
 
+  // --- ANALYSE par mouvements : période (transferts stock → usine) ---
+  const appliquerPresetMouv = (p: 'tout' | '3m' | '6m' | '12m') => {
+    setMouvPreset(p)
+    if (p === 'tout') { setMouvDebut(''); setMouvFin(''); return }
+    setMouvDebut(jourIlYaMois(p === '3m' ? 3 : p === '6m' ? 6 : 12))
+    setMouvFin(isoJour(new Date()))
+  }
+  const libellePeriodeMouv = () => libellePeriode(mouvDebut, mouvFin)
+
   const lignesAnalyse: LigneAnalyse[] = useMemo(() => {
     return analyseBobines.map(b => {
       const mvts = b.mouvements || []
@@ -848,6 +865,27 @@ export default function Home() {
     return res
   }, [lignesAnalyse, analyseLotSel, analyseFournSel, analyseDimSels, analyseDureteSel, analyseRevSel])
 
+  // --- ANALYSE par mouvements : transferts stock → usine de la période choisie ---
+  const analyseTransfers = useMemo(() => {
+    const map = new Map<number, { transferts: TransfertBobine[]; poids: number; retours: MvtAnalyse[]; poidsRetours: number }>()
+    for (const l of lignesAnalyse) {
+      // Le poids qui change de lieu est reconstitué depuis l'historique (les sorties vers
+      // l'usine ne portent pas de poids) puis limité à la période choisie
+      const poidsParMouvement = poidsLorsMouvements(l.mvts, l.poidsInitial)
+      const transferts: TransfertBobine[] = l.mvts
+        .map((m, i) => ({ mvt: m, poids: poidsParMouvement.get(i) ?? 0 }))
+        .filter(t => versUsine(t.mvt.type_mouvement) && dansPeriode(t.mvt.date_mouvement, mouvDebut, mouvFin))
+      const retours = mouvementsPeriode(l.retoursUsine, mouvDebut, mouvFin)
+      map.set(l.id, { transferts, poids: transferts.reduce((s, t) => s + t.poids, 0), retours, poidsRetours: poidsMouvements(retours) })
+    }
+    return map
+  }, [lignesAnalyse, mouvDebut, mouvFin])
+
+  // Transferts affichés pour une bobine : ceux de la période en mode mouvements, sinon l'historique complet
+  const transfertsAffiches = (l: LigneAnalyse): TransfertBobine[] => groupeAnalyse === 'mouvements'
+    ? (analyseTransfers.get(l.id)?.transferts ?? [])
+    : l.sortiesUsine.map(m => ({ mvt: m, poids: poidsMouvements([m]) }))
+
   // Duretés / revêtements proposés restreints à la dimension choisie (comme l'État du stock)
   const analyseDuretesDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => !analyseDimSels.length || analyseDimSels.includes(l.dimension)).map(l => l.durete))).sort(), [lignesAnalyse, analyseDimSels])
   const analyseRevsDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => (!analyseDimSels.length || analyseDimSels.includes(l.dimension)) && (!analyseDureteSel || l.durete === analyseDureteSel)).map(l => l.revetement))).sort(), [lignesAnalyse, analyseDimSels, analyseDureteSel])
@@ -888,6 +926,7 @@ export default function Home() {
     if (analyseDimSels.length) parts.push(`Dimension ${analyseDimSels.join(', ')}`)
     if (analyseDureteSel) parts.push(`Dureté ${analyseDureteSel}`)
     if (analyseRevSel) parts.push(`Revêtement ${analyseRevSel}`)
+    if (groupeAnalyse === 'mouvements' && (mouvDebut || mouvFin)) parts.push(`Période ${mouvDebut ? fmtDateAnalyse(mouvDebut) : 'origine'} → ${mouvFin ? fmtDateAnalyse(mouvFin) : 'aujourd\'hui'}`)
     return parts.join(' + ')
   }
 
@@ -896,12 +935,19 @@ export default function Home() {
     const numOf = (dim: string) => { const m = dim.match(/Ø?([\d.]+)/); return m ? parseFloat(m[1]) : 9999 }
     const groupes = new Map<string, GroupeAnalyse>()
     for (const l of analyseFiltrees) {
+      // Mode mouvements : seules les bobines ayant changé de lieu (stock → usine) sur la période
+      if (groupeAnalyse === 'mouvements' && !analyseTransfers.get(l.id)?.transferts.length) continue
       let key = '', icone = '📦', label = ''
       let parties: PartieLibelle[] = []
       if (groupeAnalyse === 'lot') {
         key = `${l.fournisseur}-${l.numCommande}-${l.typeProduit}`
         label = `Lot ${l.lot}`
         parties = [{ t: l.dimension }, { t: l.revetement, rev: l.revetement }, { t: l.durete, dur: l.durete }]
+      } else if (groupeAnalyse === 'mouvements') {
+        key = `${l.dimension} · ${l.durete} · ${l.revetement}`
+        icone = '🔄'
+        label = ''
+        parties = [{ t: l.dimension }, { t: l.durete, dur: l.durete }, { t: l.revetement, rev: l.revetement }]
       } else if (groupeAnalyse === 'fournisseur') {
         key = l.fournisseur
         icone = '🏭'; label = l.fournisseur
@@ -928,6 +974,10 @@ export default function Home() {
           g.sousTitre = `Fournisseur ${l.fournisseur} · Reçu le ${fmtDateAnalyse(l.dateReception)} · ${l.matiere} · ${l.durete} · ${l.revetement}`
           g.sousTitreParts = [{ t: `Fournisseur ${l.fournisseur}` }, { t: `Reçu le ${fmtDateAnalyse(l.dateReception)}` }, { t: l.matiere }, { t: l.durete, dur: l.durete }, { t: l.revetement, rev: l.revetement }]
         }
+      } else if (groupeAnalyse === 'mouvements') {
+        const nbTransf = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.transferts.length || 0), 0)
+        const nbRet = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.retours.length || 0), 0)
+        g.sousTitre = `${g.bobines.length} bobine(s) · ${nbTransf} transfert(s) · ${nbRet} retour(s) · ${libellePeriode(mouvDebut, mouvFin)}`
       } else if (groupeAnalyse === 'fournisseur') {
         g.sousTitre = `${new Set(g.bobines.map(b => b.lot)).size} lot(s)`
       } else {
@@ -935,9 +985,14 @@ export default function Home() {
         if (analyseDimSels.length) g.sousTitre = `${g.bobines.length} bobine(s) dans cette dureté et revêtement`
       }
     }
-    res.sort((a, b) => groupeAnalyse === 'diametre' ? (numOf(a.key) - numOf(b.key) || a.key.localeCompare(b.key)) : a.key.localeCompare(b.key))
+    // Tri : par poids transféré décroissant en mode mouvements, sinon comme avant
+    const poidsGroupe = (g: GroupeAnalyse) => g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poids || 0), 0)
+    res.sort((a, b) => {
+      if (groupeAnalyse === 'mouvements') return poidsGroupe(b) - poidsGroupe(a) || a.key.localeCompare(b.key)
+      return groupeAnalyse === 'diametre' ? (numOf(a.key) - numOf(b.key) || a.key.localeCompare(b.key)) : a.key.localeCompare(b.key)
+    })
     return res
-  }, [analyseFiltrees, groupeAnalyse, analyseDimSels])
+  }, [analyseFiltrees, groupeAnalyse, analyseDimSels, analyseTransfers, mouvDebut, mouvFin])
 
   // --- ANALYSE : totaux (sur le sous-ensemble filtré) ---
   const analyseTotal = useMemo(() => {
@@ -953,14 +1008,28 @@ export default function Home() {
     return { nbBobines: analyseFiltrees.length, poidsInitial, poidsStock, poidsUsine, nbSorties, nbRetours, nbRebuts }
   }, [analyseFiltrees])
 
+  // --- ANALYSE par mouvements : totaux de la période choisie ---
+  const analyseTotalTransfers = useMemo(() => {
+    let poidsTransferts = 0, nbTransferts = 0, poidsRetours = 0, nbRetours = 0, nbBobines = 0
+    for (const l of analyseFiltrees) {
+      const t = analyseTransfers.get(l.id)
+      if (!t) continue
+      if (t.transferts.length) nbBobines++
+      poidsTransferts += t.poids; nbTransferts += t.transferts.length
+      poidsRetours += t.poidsRetours; nbRetours += t.retours.length
+    }
+    return { poidsTransferts, nbTransferts, poidsRetours, nbRetours, nbBobines }
+  }, [analyseFiltrees, analyseTransfers])
+
   // --- ANALYSE : exports CSV ---
   const handleExportAnalyseSynthese = () => {
     const lignes: string[][] = [
       [`Analyse des mouvements — exporté le ${fmtDateAnalyse(new Date().toISOString())}${analysePeriodeActive() ? ` — Sélection : ${analysePeriodeActive()}` : ''}`],
-      ['Groupe', 'Lot', 'Fournisseur', 'N° commande', 'Type produit', 'Dimension', 'Code bobine', 'Poids initial (kg)', 'Date arrivée', 'Nb sorties usine', 'Dates sorties usine', 'Nb retours usine', 'Retours usine (date + poids kg)', 'Date mise en déchet', 'Poids actuel (kg)', 'Statut', 'Lieu actuel', 'N° commande fabrication', 'Matière', 'Dureté', 'Revêtement']
+      ['Groupe', 'Cmd fab (recherche)', 'Lot', 'Fournisseur', 'N° commande', 'Type produit', 'Dimension', 'Code bobine', 'Poids initial (kg)', 'Date arrivée', 'Nb sorties usine', 'Dates sorties usine', 'Nb transferts stock→usine', 'Poids transféré stock→usine (kg)', 'Transferts stock→usine (date + poids kg)', 'Nb retours usine', 'Retours usine (date + poids kg)', 'Date mise en déchet', 'Poids actuel (kg)', 'Statut', 'Lieu actuel', 'N° commande fabrication', 'Matière', 'Dureté', 'Revêtement']
     ]
     for (const g of analyseGroupes) {
       for (const l of g.bobines) {
+        const tr = analyseTransfers.get(l.id)
         lignes.push([
           g.label,
           rechercheCmdFab.trim().toUpperCase(),
@@ -974,6 +1043,9 @@ export default function Home() {
           fmtDateAnalyse(l.arrivee),
           String(l.sortiesUsine.length),
           l.sortiesUsine.map(m => fmtDateAnalyse(m.date_mouvement)).join(' + '),
+          String(tr?.transferts.length ?? 0),
+          (tr?.poids ?? 0).toFixed(2),
+          (tr?.transferts ?? []).map(t => `${fmtDateAnalyse(t.mvt.date_mouvement)} (${t.poids.toFixed(2)} kg)`).join(' + '),
           String(l.retoursUsine.length),
           l.retoursUsine.map(m => `${fmtDateAnalyse(m.date_mouvement)} (${parseFloat(m.poids_mouvement).toFixed(2)} kg)`).join(' + '),
           l.dechets.map(m => fmtDateAnalyse(m.date_mouvement)).join(' + '),
@@ -1336,10 +1408,24 @@ export default function Home() {
         <div className="bg-teal-50 border border-teal-200 rounded-md p-4 mb-6">
           <label className="block text-sm font-medium mb-2">Analyser par :</label>
           <div className="flex flex-wrap gap-2">
-            {([['diametre', '📏 Par produit'], ['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur']] as const).map(([k, lbl]) => (
+            {([['diametre', '📏 Par produit'], ['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur'], ['mouvements', '🔄 Par mouvements']] as const).map(([k, lbl]) => (
               <button key={k} onClick={() => { setGroupeAnalyse(k); setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
             ))}
           </div>
+          {groupeAnalyse === 'mouvements' && (
+            <div className="mt-3 bg-white border border-orange-300 rounded-md p-3">
+              <p className="text-xs text-gray-700 font-medium mb-2">{"Période des changements de lieu (stock → usine) — l'affichage est trié par poids transféré"}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {([['tout', 'Tout'], ['3m', '3 mois'], ['6m', '6 mois'], ['12m', '12 mois']] as const).map(([k, lbl]) => (
+                  <button key={k} onClick={() => appliquerPresetMouv(k)} className={`px-3 py-1 rounded-md text-sm ${mouvPreset === k ? 'bg-orange-600 text-white' : 'bg-white border'}`}>{lbl}</button>
+                ))}
+                <span className="text-xs text-gray-500">ou</span>
+                <label className="text-xs text-gray-700">Début <input type="date" value={mouvDebut} onChange={e => { setMouvDebut(e.target.value); setMouvPreset('perso') }} className="ml-1 px-2 py-1 border rounded-md text-sm" /></label>
+                <label className="text-xs text-gray-700">Fin <input type="date" value={mouvFin} onChange={e => { setMouvFin(e.target.value); setMouvPreset('perso') }} className="ml-1 px-2 py-1 border rounded-md text-sm" /></label>
+              </div>
+              <p className="text-xs text-gray-600 mt-2">Période active : <span className="font-semibold text-orange-700">{libellePeriodeMouv()}</span> — {analyseTotalTransfers.poidsTransferts.toFixed(2)} kg transférés en {analyseTotalTransfers.nbTransferts} mouvement(s)</p>
+            </div>
+          )}
           <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
             {groupeAnalyse === 'lot' && (
               <div>
@@ -1403,8 +1489,8 @@ export default function Home() {
             <button onClick={() => setAnalyseModeDetail(false)} className={`px-4 py-2 rounded-md text-sm ${!analyseModeDetail ? 'bg-teal-600 text-white' : 'bg-white border'}`}>📋 Mode résumé</button>
             <button onClick={() => setAnalyseModeDetail(true)} className={`px-4 py-2 rounded-md text-sm ${analyseModeDetail ? 'bg-teal-600 text-white' : 'bg-white border'}`}>🔎 Mode détail</button>
           </div>
-          {(analyseLotSel || analyseFournSel || analyseDimSels.length > 0 || analyseDureteSel || analyseRevSel || rechercheCmdFab) && (
-            <button onClick={() => { setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel(''); setRechercheCmdFab('') }} className="mt-3 bg-white border border-teal-300 text-teal-700 px-3 py-1 rounded-md text-xs">✕ Réinitialiser les filtres</button>
+          {(analyseLotSel || analyseFournSel || analyseDimSels.length > 0 || analyseDureteSel || analyseRevSel || rechercheCmdFab || mouvPreset !== 'tout') && (
+            <button onClick={() => { setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel(''); setRechercheCmdFab(''); setMouvPreset('tout'); setMouvDebut(''); setMouvFin('') }} className="mt-3 bg-white border border-teal-300 text-teal-700 px-3 py-1 rounded-md text-xs">✕ Réinitialiser les filtres</button>
           )}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -1412,6 +1498,13 @@ export default function Home() {
           <div className="bg-gray-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Poids initial total</p><p className="text-xl font-bold text-gray-800">{analyseTotal.poidsInitial.toFixed(2)} kg</p></div>
           <div className="bg-green-50 border-2 border-green-300 rounded-md p-3 text-center"><p className="text-xs text-gray-600">En stock</p><p className="text-4xl font-bold text-green-800">{analyseTotal.poidsStock.toFixed(2)} kg</p><p className="text-xs text-gray-500">En usine : {analyseTotal.poidsUsine.toFixed(2)} kg</p></div>
           <div className="bg-purple-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Sorties usine / retours</p><p className="text-xl font-bold text-purple-800">{analyseTotal.nbSorties} / {analyseTotal.nbRetours}</p><p className="text-xs text-gray-500">Rebuts : {analyseTotal.nbRebuts}</p></div>
+          {groupeAnalyse === 'mouvements' && (
+            <div className="bg-orange-50 border-2 border-orange-300 rounded-md p-3 text-center">
+              <p className="text-xs text-gray-600">Transféré stock → usine</p>
+              <p className="text-xl font-bold text-orange-700">{analyseTotalTransfers.poidsTransferts.toFixed(2)} kg</p>
+              <p className="text-xs text-gray-500">{analyseTotalTransfers.nbTransferts} transfert(s) · {analyseTotalTransfers.nbBobines} bobine(s) · {libellePeriodeMouv()}</p>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-3 mb-6">
           <button onClick={handleExportAnalyseSynthese} className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-md text-sm font-semibold">📥 Exporter la synthèse (CSV)</button>
@@ -1446,12 +1539,13 @@ export default function Home() {
                             <tbody>
                               {(() => {
                                 const conso = consommationsRetour(l.mvts, l.poidsInitial)
-                                return l.mvts.map(m => (
+                                const poidsMvt = poidsLorsMouvements(l.mvts, l.poidsInitial)
+                                return l.mvts.map((m, idx) => (
                                 <Fragment key={m.id}>
                                 <tr className="border-t border-blue-100">
                                   <td className="py-1 pr-3 whitespace-nowrap">{new Date(m.date_mouvement).toLocaleString('fr-FR')}</td>
                                   <td className="py-1 pr-3">{LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement}</td>
-                                  <td className="py-1 pr-3 text-right font-semibold">{parseFloat(m.poids_mouvement).toFixed(2)}</td>
+                                  <td className="py-1 pr-3 text-right font-semibold">{poidsAffiche(m, poidsMvt.get(idx)).toFixed(2)}</td>
                                   <td className="py-1 pr-3">{m.lieu_destination || '-'}</td>
                                   <td className="py-1 pr-3">{m.client || '-'}</td>
                                   <td className="py-1">{m.texte_libre || ''}</td>
@@ -1503,17 +1597,22 @@ export default function Home() {
               const pInit = g.bobines.reduce((s, l) => s + l.poidsInitial, 0)
               const pStock = g.bobines.filter(l => l.lieu === 'STOCK_PRINCIPAL').reduce((s, l) => s + l.poidsActuel, 0)
               const pUsine = g.bobines.filter(l => l.lieu === 'USINE').reduce((s, l) => s + l.poidsActuel, 0)
-              const nSorties = g.bobines.reduce((s, l) => s + l.sortiesUsine.length, 0)
-              const nRetours = g.bobines.reduce((s, l) => s + l.retoursUsine.length, 0)
+              const pTransfere = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poids || 0), 0)
+              const nSorties = groupeAnalyse === 'mouvements'
+                ? g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.transferts.length || 0), 0)
+                : g.bobines.reduce((s, l) => s + l.sortiesUsine.length, 0)
+              const nRetours = groupeAnalyse === 'mouvements'
+                ? g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.retours.length || 0), 0)
+                : g.bobines.reduce((s, l) => s + l.retoursUsine.length, 0)
               const nRebuts = g.bobines.filter(l => l.dechets.length > 0).length
               return (
                 <div key={g.key} className="border rounded-md overflow-hidden">
                   <div className="bg-gray-100 px-4 py-2">
                     <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : (groupeAnalyse === 'diametre' && i === 0 ? <span className="text-lg sm:text-xl">{p.t}</span> : p.t)}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{groupeAnalyse === 'diametre' && g.label ? <span className="text-lg sm:text-xl">{g.label}</span> : g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : p.t}</Fragment>)) : g.sousTitre}</span></p>
-                    <p className="text-xs text-gray-600 mt-0.5"><span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
+                    <p className="text-xs text-gray-600 mt-0.5">{groupeAnalyse === 'mouvements' && (<><span className="font-bold text-orange-700 text-lg sm:text-xl">transféré stock → usine : {pTransfere.toFixed(2)} kg</span>{' · '}</>)}<span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg · {nSorties} {groupeAnalyse === 'mouvements' ? 'transfert(s) stock→usine' : 'sortie(s) usine'} · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
-                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-left">Arrivée</th><th className="px-3 py-2 text-left">Sorties usine</th><th className="px-3 py-2 text-left">Retours usine</th><th className="px-3 py-2 text-left">Mise en déchet</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
+                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-left">Arrivée</th><th className="px-3 py-2 text-left">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-3 py-2 text-left">Retours usine</th><th className="px-3 py-2 text-left">Mise en déchet</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
                     <tbody>
                       {g.bobines.map(l => (
                         <Fragment key={l.id}>
@@ -1522,7 +1621,7 @@ export default function Home() {
                             <td className="px-3 py-2">{l.dimension}</td>
                             <td className="px-3 py-2 text-right">{l.poidsInitial.toFixed(2)}</td>
                             <td className="px-3 py-2 whitespace-nowrap">{fmtDateAnalyse(l.arrivee)}</td>
-                            <td className="px-3 py-2 text-xs">{l.sortiesUsine.length === 0 ? <span className="text-gray-400">-</span> : l.sortiesUsine.map((m, i) => <div key={i}>{fmtDateAnalyse(m.date_mouvement)}</div>)}</td>
+                            <td className="px-3 py-2 text-xs">{transfertsAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : transfertsAffiches(l).map((t, i) => <div key={i}>{fmtDateAnalyse(t.mvt.date_mouvement)}{groupeAnalyse === 'mouvements' ? ` (${t.poids.toFixed(2)} kg)` : ''}</div>)}</td>
                             <td className="px-3 py-2 text-xs">{l.retoursUsine.length === 0 ? <span className="text-gray-400">-</span> : l.retoursUsine.map((m, i) => <div key={i}>{fmtDateAnalyse(m.date_mouvement)} ({parseFloat(m.poids_mouvement).toFixed(2)} kg)</div>)}</td>
                             <td className="px-3 py-2 text-xs text-red-700">{l.dechets.map((m, i) => <div key={i}>🗑️ {fmtDateAnalyse(m.date_mouvement)}</div>)}</td>
                             <td className="px-3 py-2 text-right font-semibold text-green-800">{l.poidsActuel.toFixed(2)}</td>
@@ -1537,12 +1636,13 @@ export default function Home() {
                                 <tbody>
                                   {(() => {
                                     const conso = consommationsRetour(l.mvts, l.poidsInitial)
-                                    return l.mvts.map(m => (
+                                    const poidsMvt = poidsLorsMouvements(l.mvts, l.poidsInitial)
+                                    return l.mvts.map((m, idx) => (
                                     <Fragment key={m.id}>
                                     <tr className="border-t border-blue-100">
                                       <td className="py-1 pr-3 whitespace-nowrap">{new Date(m.date_mouvement).toLocaleString('fr-FR')}</td>
                                       <td className="py-1 pr-3">{LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement}</td>
-                                      <td className="py-1 pr-3 text-right font-semibold">{parseFloat(m.poids_mouvement).toFixed(2)}</td>
+                                      <td className="py-1 pr-3 text-right font-semibold">{poidsAffiche(m, poidsMvt.get(idx)).toFixed(2)}</td>
                                       <td className="py-1 pr-3">{m.lieu_destination || '-'}</td>
                                       <td className="py-1 pr-3">{m.client || '-'}</td>
                                       <td className="py-1">{m.texte_libre || ''}</td>
