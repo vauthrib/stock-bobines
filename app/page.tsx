@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { Html5QrcodeScanner } from 'html5-qrcode'
 import { QRCodeSVG } from 'qrcode.react'
+import { couleurRevetement, REVETEMENTS_BASE } from '@/lib/revetement'
 import { nombreCsv } from '@/lib/csv'
 
 // ================= TYPES =================
@@ -58,7 +59,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.31'
+const APP_VERSION = 'V1.32'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -382,7 +383,10 @@ export default function Home() {
       const [m, d, r] = await Promise.all([
         fetch('/api/items?categorie=MATIERE'), fetch('/api/items?categorie=DURETE'), fetch('/api/items?categorie=REVETEMENT')
       ])
-      setItemsMatiere(await m.json()); setItemsDurete(await d.json()); setItemsRev(await r.json())
+      const revs = await r.json() as { id: number | string, nom: string }[]
+      const nomsRev = new Set(revs.map(i => (i.nom || '').toLowerCase()))
+      setItemsMatiere(await m.json()); setItemsDurete(await d.json())
+      setItemsRev([...revs, ...REVETEMENTS_BASE.filter(nom => !nomsRev.has(nom.toLowerCase())).map(nom => ({ id: `base-${nom}`, nom }))])
     } catch (e) { console.error(e) }
   }
   const chargerLots = async () => { try { const res = await fetch('/api/lots'); setLots(await res.json()) } catch (e) { } }
@@ -920,7 +924,7 @@ export default function Home() {
       <>
         <div className="min-h-screen bg-gray-50 p-6"><div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8">
           <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold text-blue-900">🏷️ {bobinesToPrint.length} étiquette(s)</h1><div className="flex gap-2"><button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-md">🖨️ Imprimer</button><button onClick={() => { setShowEtiquette(false); setBobinesToPrint([]) }} className="text-red-600 px-4">✕</button></div></div>
-          <div id="etiquettes-grid">{bobinesToPrint.map((b, i) => { const r = b.reception; const dim = r.type_materiel === 'Fil' ? `Ø${r.diametre_fil}` : `${r.largeur_feuillard}x${r.longueur_feuillard}`; return (<div key={i} className="etiquette"><div className="etiquette-content"><div className="etiquette-left"><p className="etiquette-header">{r.code_fournisseur} Cmd {r.num_commande}</p><p className="etiquette-code">{b.code_bobine}</p><p className="etiquette-gros text-blue-800">{dim}</p><p className="etiquette-gros text-green-800">{b.poids_initial} kg</p><p className="etiquette-gros">{r.matiere}</p><p className="etiquette-gros">{r.durete}</p><p className="etiquette-gros">{r.revetement}</p></div><div className="etiquette-right"><QRCodeSVG value={`${baseUrl}/bobine/${b.code_bobine}`} size={90} /></div></div></div>) })}</div>
+          <div id="etiquettes-grid">{bobinesToPrint.map((b, i) => { const r = b.reception; const dim = r.type_materiel === 'Fil' ? `Ø${r.diametre_fil}` : `${r.largeur_feuillard}x${r.longueur_feuillard}`; return (<div key={i} className="etiquette"><div className="etiquette-content"><div className="etiquette-left"><p className="etiquette-header">{r.code_fournisseur} Cmd {r.num_commande}</p><p className="etiquette-code">{b.code_bobine}</p><p className="etiquette-gros text-blue-800">{dim}</p><p className="etiquette-gros text-green-800">{b.poids_initial} kg</p><p className="etiquette-gros">{r.matiere}</p><p className="etiquette-gros">{r.durete}</p><p className={`etiquette-gros ${couleurRevetement(r.revetement)}`}>{r.revetement}</p></div><div className="etiquette-right"><QRCodeSVG value={`${baseUrl}/bobine/${b.code_bobine}`} size={90} /></div></div></div>) })}</div>
         </div></div>
         <style jsx global>{`.etiquette-header{font-size:.7rem;font-weight:bold}.etiquette-code{font-size:.85rem;font-family:monospace;font-weight:bold}.etiquette-gros{font-size:1.4rem;font-weight:bold;line-height:1.05}@media print{body *{visibility:hidden}#etiquettes-grid,#etiquettes-grid *{visibility:visible}#etiquettes-grid{position:absolute;left:0;top:0;width:210mm;display:grid;grid-template-columns:repeat(3,62mm);grid-template-rows:repeat(3,90mm);gap:3mm;padding:10mm}.etiquette{width:62mm;height:90mm;border:1px solid #000;padding:2mm;page-break-inside:avoid;box-sizing:border-box}.etiquette-content{display:flex;height:100%;gap:2mm}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center}.etiquette-right{display:flex;align-items:center;justify-content:center}.etiquette-header{font-size:.6rem}.etiquette-code{font-size:.7rem}.etiquette-gros{font-size:1.15rem}@page{size:A4 portrait;margin:0}}@media screen{#etiquettes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.etiquette{border:2px solid #000;padding:8px;min-height:200px}.etiquette-content{display:flex;height:100%;gap:10px}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center}.etiquette-right{display:flex;align-items:center;justify-content:center}}`}</style>
       </>
@@ -1350,7 +1354,7 @@ export default function Home() {
               return (
                 <div key={g.key} className="border rounded-md overflow-hidden">
                   <div className="bg-gray-100 px-4 py-2">
-                    <p className="font-bold text-gray-800">{g.icone} {groupeAnalyse === 'lot' && g.bobines[0] ? `${g.bobines[0].dimension} · ${g.bobines[0].revetement} · ${g.bobines[0].durete} · ` : ''}{g.label} <span className="text-xs font-normal text-gray-600">{g.sousTitre}</span></p>
+                    <p className="font-bold text-gray-800">{g.icone} {groupeAnalyse === 'lot' && g.bobines[0] ? `${g.bobines[0].dimension} · ` : ''}{groupeAnalyse === 'lot' && g.bobines[0] && <span className={couleurRevetement(g.bobines[0].revetement)}>{g.bobines[0].revetement}</span>}{groupeAnalyse === 'lot' && g.bobines[0] ? ` · ${g.bobines[0].durete} · ` : ''}{g.label} <span className="text-xs font-normal text-gray-600">{g.sousTitre}</span></p>
                     <p className="text-xs text-gray-600 mt-0.5">{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en stock {pStock.toFixed(2)} kg · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-sm">
@@ -1467,7 +1471,7 @@ export default function Home() {
         <span className="font-semibold text-green-900">📦 Total affiché :</span>
         <span className="text-green-800 font-bold text-lg">{totalPoidsEtat.toFixed(2)} kg <span className="text-sm font-normal text-green-700">({totalNbEtat} bobines)</span></span>
       </div>
-      <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th><th className="px-3 py-2 text-center">Mouvements</th></tr></thead><tbody>{etatFiltre.length === 0 ? <tr><td colSpan={6} className="text-center py-4 text-gray-500">Aucune donnée</td></tr> : etatFiltre.map((i, idx) => (<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className="px-3 py-2">{i.durete}</td><td className="px-3 py-2">{i.revetement}</td><td className="px-3 py-2 text-right">{i.nb}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids.toFixed(2)} kg</td><td className="px-3 py-2 text-center"><button onClick={() => voirMouvementsProduit(i)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">📈 Mouvements</button></td></tr>))}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Dureté</th><th className="px-3 py-2 text-left">Revêtement</th><th className="px-3 py-2 text-right">Nb bobines</th><th className="px-3 py-2 text-right">Poids total</th><th className="px-3 py-2 text-center">Mouvements</th></tr></thead><tbody>{etatFiltre.length === 0 ? <tr><td colSpan={6} className="text-center py-4 text-gray-500">Aucune donnée</td></tr> : etatFiltre.map((i, idx) => (<tr key={idx} className="border-b hover:bg-gray-50"><td className="px-3 py-2 font-semibold">{i.dimension}</td><td className="px-3 py-2">{i.durete}</td><td className={`px-3 py-2 ${couleurRevetement(i.revetement)}`}>{i.revetement}</td><td className="px-3 py-2 text-right">{i.nb}</td><td className="px-3 py-2 text-right font-bold text-green-800">{i.poids.toFixed(2)} kg</td><td className="px-3 py-2 text-center"><button onClick={() => voirMouvementsProduit(i)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">📈 Mouvements</button></td></tr>))}</tbody></table></div>
     </div></div>)
   }
 

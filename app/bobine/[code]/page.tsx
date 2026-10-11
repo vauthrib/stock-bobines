@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
+import { couleurRevetement } from '@/lib/revetement'
 
 type Bobine = {
   id: number
@@ -433,7 +434,7 @@ export default function BobinePage() {
           <div className="space-y-2 text-sm">
             <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Matière</span><span className="font-semibold">{r.matiere}</span></div>
             <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Dureté</span><span className="font-semibold">{r.durete}</span></div>
-            <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Revêtement</span><span className="font-semibold">{r.revetement}</span></div>
+            <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Revêtement</span><span className={`font-semibold ${couleurRevetement(r.revetement)}`}>{r.revetement}</span></div>
             <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Poids initial</span><span className="font-semibold">{bobine.poids_initial} kg</span></div>
             <div className="flex justify-between py-2 border-b"><span className="text-gray-600">Date réception</span><span className="font-semibold">{new Date(r.date_reception).toLocaleDateString('fr-FR')}</span></div>
             {bobine.num_commande_fabrication && (<div className="flex justify-between py-2 border-b"><span className="text-gray-600">Commande fabrication</span><span className="font-semibold">{bobine.num_commande_fabrication}</span></div>)}
