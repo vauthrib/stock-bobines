@@ -89,7 +89,8 @@ export async function POST(request: NextRequest) {
         n_commande_client: data.n_commande_client || null,
         client: data.client || null,
         texte_libre: data.texte_libre || null,
-        lieu_destination: nouveauLieu
+        lieu_destination: nouveauLieu,
+        utilisateur: data.utilisateur || null
       }
     })
 

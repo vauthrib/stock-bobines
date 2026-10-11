@@ -57,9 +57,30 @@ type ReceptionData = {
   nombre_bobines: number
   poids_bobines: number[]
 }
-type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
+type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'operations' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.33'
+// Une ligne de l'historique des opérations (mouvements de bobines)
+type Operation = {
+  id: number
+  date_mouvement: string
+  code_bobine: string
+  lot: string
+  fournisseur: string
+  type_mouvement: string
+  poids_mouvement: string
+  lieu_destination: string | null
+  client: string | null
+  n_commande_client: string | null
+  texte_libre: string | null
+  utilisateur: string | null
+  num_commande_fabrication: string | null
+  dimension: string
+  matiere: string
+  durete: string
+  revetement: string
+}
+
+const APP_VERSION = 'V1.34'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -70,6 +91,17 @@ const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
   TRANSFERT_VERS_USINE: '➡️ Vers usine',
   TRANSFERT_VERS_STOCK: '➡️ Vers stock',
   TRANSFERT_VERS_DECHET: '➡️ Vers déchet'
+}
+
+// Sens du mouvement de bobine, pour l'historique des opérations
+const SENS_MOUVEMENT: Record<string, { label: string; classe: string }> = {
+  ENTREE_FOURNISSEUR: { label: '⬅️ Entrée (fournisseur)', classe: 'text-green-700' },
+  TRANSFERT_VERS_USINE: { label: '➡️ Sortie (vers usine)', classe: 'text-purple-700' },
+  SORTIE_USINE: { label: '➡️ Sortie (vers usine)', classe: 'text-purple-700' },
+  RETOUR_USINE: { label: '⬅️ Entrée (retour usine)', classe: 'text-indigo-700' },
+  TRANSFERT_VERS_STOCK: { label: '⬅️ Entrée (vers stock)', classe: 'text-blue-700' },
+  SORTIE_DECHET: { label: '➡️ Sortie (rebut)', classe: 'text-red-700' },
+  TRANSFERT_VERS_DECHET: { label: '➡️ Sortie (vers rebut)', classe: 'text-red-700' }
 }
 
 type MouvementProduit = {
@@ -334,6 +366,9 @@ export default function Home() {
   const [editingUser, setEditingUser] = useState<any>(null)
   const [newUser, setNewUser] = useState({ login: '', password: '', isSuper: false, isAdmin: false })
   const [history, setHistory] = useState<any[]>([])
+  // Historique des opérations (mouvements de bobines)
+  const [operations, setOperations] = useState<Operation[]>([])
+  const [chargementOperations, setChargementOperations] = useState(false)
   const [autreSection, setAutreSection] = useState<AutreSection>('actions')
 
   // --- EXPORT (pointages) ---
@@ -394,6 +429,14 @@ export default function Home() {
   const chargerLots = async () => { try { const res = await fetch('/api/lots'); setLots(await res.json()) } catch (e) { } }
   const chargerUsers = async () => { try { const res = await fetch('/api/users'); setUsers(await res.json()) } catch (e) { } }
   const chargerHistory = async () => { try { const res = await fetch('/api/auth/history?limit=100'); setHistory(await res.json()) } catch (e) { } }
+  const chargerOperations = async () => {
+    setChargementOperations(true)
+    try {
+      const res = await fetch('/api/operations?limit=300')
+      if (res.ok) setOperations(await res.json())
+      else alert("❌ Erreur chargement des opérations")
+    } catch { alert('❌ Erreur') } finally { setChargementOperations(false) }
+  }
   const chargerAnalyse = async () => {
     setChargementAnalyse(true)
     try {
@@ -490,7 +533,7 @@ export default function Home() {
 
   const handleValiderReception = async () => {
     try {
-      const res = await fetch('/api/receptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(receptionData) })
+      const res = await fetch('/api/receptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...receptionData, utilisateur: currentUser }) })
       if (res.ok) {
         await res.json()
         const all = await fetch('/api/bobines').then(r => r.json())
@@ -515,7 +558,7 @@ export default function Home() {
   const handleVersUsine = async () => {
     if (!selectedBobine) return; if (selectedBobine.lieu === 'USINE') return alert('⚠️ Déjà en usine')
     try {
-      const res = await fetch('/api/mouvements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code_bobine: selectedBobine.code_bobine, type_mouvement: 'TRANSFERT_VERS_USINE', poids_mouvement: 0, num_commande_fabrication: numCommandeFabrication }) })
+      const res = await fetch('/api/mouvements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code_bobine: selectedBobine.code_bobine, type_mouvement: 'TRANSFERT_VERS_USINE', poids_mouvement: 0, num_commande_fabrication: numCommandeFabrication, utilisateur: currentUser }) })
       if (res.ok) { alert('✅ Transférée'); setCurrentPage('autre'); setAutreSection('actions'); setSelectedBobine(null); setNumCommandeFabrication(''); chargerBobines() }
     } catch (e) { alert('❌ Erreur') }
   }
@@ -527,7 +570,7 @@ export default function Home() {
     else if (isNaN(p) || p < 0) return alert('Poids invalide')
     else if (p > parseFloat(selectedBobine.poids_initial)) return alert('Poids > initial')
     try {
-      const res = await fetch('/api/mouvements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code_bobine: selectedBobine.code_bobine, type_mouvement: 'RETOUR_USINE', poids_mouvement: p, lieu_destination: 'STOCK_PRINCIPAL' }) })
+      const res = await fetch('/api/mouvements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code_bobine: selectedBobine.code_bobine, type_mouvement: 'RETOUR_USINE', poids_mouvement: p, lieu_destination: 'STOCK_PRINCIPAL', utilisateur: currentUser }) })
       if (res.ok) { alert(p === 0 ? '✅ Terminée' : '✅ Retournée'); setCurrentPage('autre'); setAutreSection('actions'); setSelectedBobine(null); setPoidsRestant(''); chargerBobines() }
     } catch (e) { alert('❌ Erreur') }
   }
@@ -535,7 +578,7 @@ export default function Home() {
   const handleRetourDechet = async () => {
     if (!selectedBobine) return
     try {
-      const res = await fetch('/api/mouvements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code_bobine: selectedBobine.code_bobine, type_mouvement: 'SORTIE_DECHET', poids_mouvement: parseFloat(selectedBobine.poids_actuel) }) })
+      const res = await fetch('/api/mouvements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code_bobine: selectedBobine.code_bobine, type_mouvement: 'SORTIE_DECHET', poids_mouvement: parseFloat(selectedBobine.poids_actuel), utilisateur: currentUser }) })
       if (res.ok) { alert('✅ Rebut'); setCurrentPage('autre'); setAutreSection('actions'); setSelectedBobine(null); chargerBobines() }
     } catch (e) { alert('❌ Erreur') }
   }
@@ -1013,10 +1056,10 @@ export default function Home() {
           </div>
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="flex border-b overflow-x-auto">
-              {['actions', 'items', 'lots', 'users', 'history', 'export', 'backup', 'reset'].map(s => (
-                <button key={s} onClick={() => { setAutreSection(s as AutreSection); if (s === 'lots') chargerLots(); if (s === 'users') chargerUsers(); if (s === 'history') chargerHistory(); if (s === 'export') chargerBobines() }}
+              {['actions', 'items', 'lots', 'users', 'history', 'operations', 'export', 'backup', 'reset'].map(s => (
+                <button key={s} onClick={() => { setAutreSection(s as AutreSection); if (s === 'lots') chargerLots(); if (s === 'users') chargerUsers(); if (s === 'history') chargerHistory(); if (s === 'operations') chargerOperations(); if (s === 'export') chargerBobines() }}
                   className={`px-6 py-4 font-semibold whitespace-nowrap ${autreSection === s ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
-                  {{ actions: '⚡ Actions', items: '📝 Items', lots: '📦 Lots', users: '👥 Utilisateurs', history: '📊 Historique', export: '📤 EXPORT', backup: '💾 Backup', reset: '⚠️ Reset' }[s]}
+                  {{ actions: '⚡ Actions', items: '📝 Items', lots: '📦 Lots', users: '👥 Utilisateurs', history: '📊 Historique', operations: '🔄 Opérations', export: '📤 EXPORT', backup: '💾 Backup', reset: '⚠️ Reset' }[s]}
                 </button>
               ))}
             </div>
@@ -1104,6 +1147,41 @@ export default function Home() {
                     </table>
                   </div>
                 )}</div>
+              )}
+              {autreSection === 'operations' && (
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <p className="text-sm text-gray-600">Historique des opérations — {operations.length} dernier(s) mouvement(s) de bobines</p>
+                    <button onClick={chargerOperations} className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-xs">↻ Rafraîchir</button>
+                  </div>
+                  {chargementOperations ? <p className="text-center py-8 text-gray-500">Chargement…</p> : operations.length === 0 ? <p className="text-center py-8 text-gray-500">Aucune opération</p> : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-100"><tr><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Heure</th><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Sens du mouvement</th><th className="px-3 py-2 text-right">Poids (kg)</th><th className="px-3 py-2 text-left">Lieu après</th><th className="px-3 py-2 text-left">Client / Cmd</th><th className="px-3 py-2 text-left">User</th><th className="px-3 py-2 text-left">Note</th></tr></thead>
+                        <tbody>
+                          {operations.map(o => {
+                            const d = new Date(o.date_mouvement)
+                            const sens = SENS_MOUVEMENT[o.type_mouvement]
+                            return (
+                              <tr key={o.id} className="border-b hover:bg-gray-50">
+                                <td className="px-3 py-2 text-xs whitespace-nowrap">{d.toLocaleDateString('fr-FR')}</td>
+                                <td className="px-3 py-2 text-xs whitespace-nowrap">{d.toLocaleTimeString('fr-FR')}</td>
+                                <td className="px-3 py-2 font-mono font-semibold">{o.code_bobine}</td>
+                                <td className="px-3 py-2 text-xs">{o.dimension} <span className={couleurRevetement(o.revetement)}>{o.revetement}</span></td>
+                                <td className={`px-3 py-2 text-xs font-semibold ${sens ? sens.classe : 'text-gray-700'}`}>{sens ? sens.label : o.type_mouvement}</td>
+                                <td className="px-3 py-2 text-right font-semibold">{parseFloat(o.poids_mouvement).toFixed(2)}</td>
+                                <td className="px-3 py-2 text-xs">{LIBELLES_LIEU[o.lieu_destination || ''] || '-'}</td>
+                                <td className="px-3 py-2 text-xs">{o.client || o.n_commande_client ? `${o.client || '-'}${o.n_commande_client ? ` · ${o.n_commande_client}` : ''}` : '-'}</td>
+                                <td className="px-3 py-2 font-semibold">{o.utilisateur || '—'}</td>
+                                <td className="px-3 py-2 text-xs text-gray-600 max-w-xs truncate">{[o.num_commande_fabrication ? `Cmd fab ${o.num_commande_fabrication}` : '', o.texte_libre || ''].filter(Boolean).join(' · ')}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               )}
               {autreSection === 'backup' && (
                 <div className="space-y-4">

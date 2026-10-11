@@ -53,6 +53,7 @@ model Mouvement {
   client                    String?         @db.VarChar(100)
   texte_libre               String?
   lieu_destination          Lieu?
+  utilisateur               String?         @db.VarChar(50)
   date_mouvement            DateTime        @default(now())
   
   bobine                    Bobine          @relation(fields: [bobine_id], references: [id])

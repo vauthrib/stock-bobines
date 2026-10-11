@@ -64,7 +64,8 @@ export async function POST(request: NextRequest) {
         data: {
           bobine_id: bobine.id,
           type_mouvement: 'ENTREE_FOURNISSEUR',
-          poids_mouvement: poids
+          poids_mouvement: poids,
+          utilisateur: data.utilisateur || null
         }
       })
       

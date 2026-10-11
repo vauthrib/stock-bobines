@@ -141,6 +141,7 @@ export default function BobinePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code_bobine: bobine?.code_bobine,
+          utilisateur: currentUser,
           type_mouvement: 'TRANSFERT_VERS_USINE',
           poids_mouvement: 0,
           num_commande_fabrication: numCommande
@@ -191,6 +192,7 @@ export default function BobinePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code_bobine: bobine?.code_bobine,
+          utilisateur: currentUser,
           type_mouvement: 'RETOUR_USINE',
           poids_mouvement: poids,
           lieu_destination: 'STOCK_PRINCIPAL'
@@ -232,6 +234,7 @@ export default function BobinePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code_bobine: bobine?.code_bobine,
+          utilisateur: currentUser,
           type_mouvement: 'SORTIE_DECHET',
           poids_mouvement: parseFloat(bobine?.poids_actuel || '0'),
           texte_libre: commentaireRebut
@@ -274,6 +277,7 @@ export default function BobinePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code_bobine: bobine?.code_bobine,
+          utilisateur: currentUser,
           type_mouvement: 'SORTIE_DECHET',
           poids_mouvement: poids,
           texte_libre: commentaireRebut
