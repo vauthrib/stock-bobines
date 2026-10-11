@@ -80,7 +80,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.36'
+const APP_VERSION = 'V1.37'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -384,7 +384,8 @@ export default function Home() {
   // --- ANALYSE des mouvements ---
   const [analyseBobines, setAnalyseBobines] = useState<BobineAnalyse[]>([])
   const [chargementAnalyse, setChargementAnalyse] = useState(false)
-  const [groupeAnalyse, setGroupeAnalyse] = useState<'lot' | 'fournisseur' | 'diametre'>('lot')
+  // Par défaut : analyse par produit (dimension / dureté / revêtement)
+  const [groupeAnalyse, setGroupeAnalyse] = useState<'lot' | 'fournisseur' | 'diametre'>('diametre')
   const [bobineAnalyseDetail, setBobineAnalyseDetail] = useState<number | null>(null)
   // Sélection (filtres) de la page Analyse
   const [analyseLotSel, setAnalyseLotSel] = useState('')
@@ -1267,7 +1268,7 @@ export default function Home() {
         <div className="bg-teal-50 border border-teal-200 rounded-md p-4 mb-6">
           <label className="block text-sm font-medium mb-2">Analyser par :</label>
           <div className="flex flex-wrap gap-2">
-            {([['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur'], ['diametre', '📏 Par produit']] as const).map(([k, lbl]) => (
+            {([['diametre', '📏 Par produit'], ['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur']] as const).map(([k, lbl]) => (
               <button key={k} onClick={() => { setGroupeAnalyse(k); setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
             ))}
           </div>
