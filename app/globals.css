@@ -24,3 +24,22 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ===== Téléphone : lisibilité et confort de consultation ===== */
+
+/* Défilement tactile fluide dans les tableaux larges */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+@media screen and (max-width: 640px) {
+  /* Évite le débordement horizontal de la page entière */
+  body {
+    overflow-x: hidden;
+  }
+
+  /* Une étiquette par ligne (le style injecté par la page impose 3 colonnes à l'écran) */
+  #etiquettes-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
