@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { nombreCsv } from '@/lib/csv'
 
 const LABELS: Record<string, string> = {
   ENTREE_FOURNISSEUR: 'Entree en stock (fournisseur)',
@@ -71,9 +72,9 @@ export async function GET() {
         b.code_bobine,
         lot,
         LABELS[m.type_mouvement] || m.type_mouvement,
-        m.poids_mouvement.toString(),
-        poidsRestant.get(b.id)!.toFixed(2),
-        poidsInitial.get(b.id)!.toFixed(2),
+        nombreCsv(m.poids_mouvement.toString()),
+        nombreCsv(poidsRestant.get(b.id)!.toFixed(2)),
+        nombreCsv(poidsInitial.get(b.id)!.toFixed(2)),
         dimension,
         r.matiere,
         r.durete,
@@ -95,10 +96,10 @@ export async function GET() {
     rows.push('')
     rows.push('RECAPITULATIF')
     rows.push(`Nombre de pointages : ${mouvements.length}`)
-    rows.push(`Entrees en stock : ${count('ENTREE_FOURNISSEUR')} pointage(s), ${total('ENTREE_FOURNISSEUR').toFixed(2)} kg`)
+    rows.push(`Entrees en stock : ${count('ENTREE_FOURNISSEUR')} pointage(s), ${nombreCsv(total('ENTREE_FOURNISSEUR').toFixed(2))} kg`)
     rows.push(`Transferts vers usine : ${count('TRANSFERT_VERS_USINE') + count('SORTIE_USINE')} pointage(s)`)
-    rows.push(`Retours usine : ${count('RETOUR_USINE')} pointage(s), ${total('RETOUR_USINE').toFixed(2)} kg`)
-    rows.push(`Mises au rebut : ${count('SORTIE_DECHET') + count('TRANSFERT_VERS_DECHET')} pointage(s), ${(total('SORTIE_DECHET') + total('TRANSFERT_VERS_DECHET')).toFixed(2)} kg`)
+    rows.push(`Retours usine : ${count('RETOUR_USINE')} pointage(s), ${nombreCsv(total('RETOUR_USINE').toFixed(2))} kg`)
+    rows.push(`Mises au rebut : ${count('SORTIE_DECHET') + count('TRANSFERT_VERS_DECHET')} pointage(s), ${nombreCsv((total('SORTIE_DECHET') + total('TRANSFERT_VERS_DECHET')).toFixed(2))} kg`)
 
     const csv = [headers.join(';'), ...rows].join('\n')
     const BOM = '\uFEFF'

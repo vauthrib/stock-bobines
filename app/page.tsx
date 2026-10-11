@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { Html5QrcodeScanner } from 'html5-qrcode'
 import { QRCodeSVG } from 'qrcode.react'
+import { nombreCsv } from '@/lib/csv'
 
 // ================= TYPES =================
 
@@ -57,7 +58,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.28'
+const APP_VERSION = 'V1.29'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -153,7 +154,7 @@ const dimensionReception = (r: BobineAnalyse['reception']) =>
 
 // Export CSV direct depuis le navigateur (sans appel serveur)
 function telechargerCSV(nomFichier: string, lignes: string[][]) {
-  const csv = lignes.map(l => l.map(v => /['";\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v).join(';')).join('\n')
+  const csv = lignes.map(l => l.map(v => { const x = nombreCsv(v); return /['";\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x }).join(';')).join('\n')
   const BOM = '\uFEFF'
   const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8' })
   const url = window.URL.createObjectURL(blob)

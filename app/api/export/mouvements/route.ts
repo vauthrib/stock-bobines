@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { nombreCsv } from '@/lib/csv'
 
 export async function GET(request: NextRequest) {
   try {
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
         m.date_mouvement.toISOString().replace('T', ' ').substring(0, 16),
         b.code_bobine,
         m.type_mouvement,
-        m.poids_mouvement.toString(),
+        nombreCsv(m.poids_mouvement.toString()),
         m.client || '',
         m.n_commande_client || '',
         r.matiere,
@@ -58,9 +59,9 @@ export async function GET(request: NextRequest) {
     // Ajouter les totaux en fin de fichier
     rows.push('')
     rows.push('RÉCAPITULATIF')
-    rows.push(`Total sorties usine: ${poidsTotalSortie.toFixed(2)} kg`)
-    rows.push(`Total déchets: ${poidsTotalDechet.toFixed(2)} kg`)
-    rows.push(`Poids total utilisé: ${(poidsTotalSortie + poidsTotalDechet).toFixed(2)} kg`)
+    rows.push(`Total sorties usine: ${nombreCsv(poidsTotalSortie.toFixed(2))} kg`)
+    rows.push(`Total déchets: ${nombreCsv(poidsTotalDechet.toFixed(2))} kg`)
+    rows.push(`Poids total utilisé: ${nombreCsv((poidsTotalSortie + poidsTotalDechet).toFixed(2))} kg`)
 
     const csv = [headers.join(';'), ...rows].join('\n')
     const BOM = '\uFEFF'

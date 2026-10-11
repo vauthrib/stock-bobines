@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { nombreCsv } from '@/lib/csv'
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
         r.matiere,
         r.durete,
         r.revetement,
-        m.poids_mouvement.toString(),
+        nombreCsv(m.poids_mouvement.toString()),
         m.texte_libre || ''
       ].join(';')
     })
