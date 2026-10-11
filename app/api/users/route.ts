@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { refusEcritureAutreSite } from '@/lib/site-base'
 
 export async function GET() {
   try {
@@ -22,6 +23,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const data = await request.json()
     
     if (!data.login || !data.password) {
@@ -50,6 +54,9 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const data = await request.json()
     
     if (!data.id) {
@@ -77,6 +84,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
     

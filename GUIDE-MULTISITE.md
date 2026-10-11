@@ -7,7 +7,7 @@ seules trois variables d'environnement changent.
 
 | | RGM (existant) | SRGA | ARIV |
 |---|---|---|---|
-| Dépôt GitHub | `vauthrib/stock-bobines` | à créer | à créer |
+| Dépôt GitHub | `vauthrib/stock-bobines` | `vauthrib/stock-bobines-srga` | `vauthrib/stock-bobines-ariv` |
 | Projet Vercel | `stock-bobines` | à créer | à créer |
 | Base Neon | existante | à créer | à créer |
 | `NEXT_PUBLIC_SITE` | `RGM` | `SRGA` | `ARIV` |
@@ -24,9 +24,35 @@ seules trois variables d'environnement changent.
 > `NEXT_PUBLIC_*` est lue **au moment de la compilation** : après les avoir créées ou modifiées,
 > il faut **redéployer** le projet pour que le site change de couleur ou d'adresse.
 
+## 0. Protéger les données de RGM (avant tout)
+
+- **Sauvegarde** : `Administration → Backup` (ou `GET /api/backup/all`) exporte toute la base du site
+  courant en CSV — à refaire avant chaque manipulation sensible. Une sauvegarde de RGM du 11/10/2026
+  est conservée dans `backups/` (dossier ignoré par git).
+- **Ne jamais réutiliser la `DATABASE_URL` de RGM** dans un autre projet Vercel.
+- **Ne pas créer les nouvelles bases comme des *branches* du projet Neon de RGM** : une branche
+  recopierait les données de RGM dans le nouveau site. Créer des **projets** Neon distincts.
+- Le projet Vercel de RGM (`stock-bobines`) ne doit garder que sa `DATABASE_URL` actuelle :
+  `NEXT_PUBLIC_SITE` absent équivaut à `RGM` (vert), donc **rien à modifier**.
+- **Garde-fou automatique** : au premier démarrage, chaque base enregistre son site propriétaire
+  (RGM, SRGA ou ARIV). Si une application est configurée pour un autre site que celui de la base,
+  un bandeau rouge s'affiche et **toute écriture est refusée** (arrivage, mouvement, item,
+  utilisateur, réinitialisation, import) : impossible de mélanger les données par erreur.
+
+## 0 bis. Passer les dépôts GitHub en privé
+
+Pour **chaque** dépôt (`stock-bobines`, `stock-bobines-srga`, `stock-bobines-ariv`) :
+**Settings → General → Danger Zone → Change repository visibility → Make private**.
+
+Après le passage en privé, vérifier que Vercel déploie toujours : **Project → Settings → Git**.
+Si le dépôt n'apparaît plus, autoriser les dépôts privés : **Vercel → Account Settings →
+Integrations → GitHub → Configure → Repository access**. Les `git push` continuent de fonctionner
+(identifiants déjà enregistrés sur ce poste).
+
 ## 1. Créer la base de données
 
-1. [console.neon.tech](https://console.neon.tech) → **New Project** (par ex. `stock-bobines-srga`).
+1. [console.neon.tech](https://console.neon.tech) → **New Project** (par ex. `stock-bobines-srga`) —
+   **pas** une branche du projet de RGM.
 2. Copier la chaîne de connexion proposée (`postgresql://…`).
 3. Dans ce dossier, écrire cette chaîne **seule, sur une ligne**, dans un fichier local `.env.srga`
    (les fichiers `.env*` sont déjà ignorés par git : rien ne sera publié).

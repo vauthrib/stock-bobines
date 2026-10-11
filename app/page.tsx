@@ -82,7 +82,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.45'
+const APP_VERSION = 'V1.46'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -465,6 +465,8 @@ export default function Home() {
   // Analyse par mouvements : filtres dureté / revêtement (sélection multiple)
   const [mouvDureteSels, setMouvDureteSels] = useState<string[]>([])
   const [mouvRevSels, setMouvRevSels] = useState<string[]>([])
+  // Identité du site et base réellement utilisée (garde-fou anti-mélange des données)
+  const [infoSite, setInfoSite] = useState<{ app: string, base: { code: string, conflit: boolean }, connexion: { hote: string, base: string }, stats: { bobines: number, receptions: number, mouvements: number, items: number, utilisateurs: number } } | null>(null)
 
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
   const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : (URL_SITE || 'https://stock-bobines.vercel.app')
@@ -477,6 +479,7 @@ export default function Home() {
         const { user, date, isAdmin: admin = false, isSuper: superUser = false } = JSON.parse(authData)
         if (date === new Date().toDateString()) {
           setIsAuthenticated(true); setCurrentUser(user); setIsAdmin(admin); setIsSuper(superUser)
+          fetch('/api/site').then(r => r.ok ? r.json() : null).then(d => { if (d) setInfoSite(d) }).catch(() => undefined)
           chargerBobines(); chargerItems()
           return
         }
@@ -485,6 +488,9 @@ export default function Home() {
   }, [])
 
   // --- Loaders ---
+  const chargerInfoSite = async () => {
+    try { const res = await fetch('/api/site'); if (res.ok) setInfoSite(await res.json()) } catch (e) { console.error(e) }
+  }
   const chargerBobines = async () => { try { const res = await fetch('/api/bobines'); setBobines(await res.json()) } catch (e) { console.error(e) } }
   const chargerItems = async () => {
     try {
@@ -539,7 +545,7 @@ export default function Home() {
       if (data.valid) {
         localStorage.setItem('app_auth', JSON.stringify({ user: data.user, date: new Date().toDateString(), isAdmin: data.isAdmin, isSuper: data.isSuper }))
         setIsAuthenticated(true); setCurrentUser(data.user); setIsAdmin(data.isAdmin); setIsSuper(data.isSuper)
-        chargerBobines(); chargerItems()
+        chargerBobines(); chargerItems(); chargerInfoSite()
       } else setAuthError(data.error || 'Erreur de connexion')
     } catch (e) { setAuthError('Erreur de connexion au serveur') }
   }
@@ -549,8 +555,18 @@ export default function Home() {
     setIsAuthenticated(false); setCurrentUser(''); setIsAdmin(false); setIsSuper(false); setLogin(''); setPassword('')
   }
 
+  // --- Garde-fou : base appartenant à un autre site ---
+  const baseAutreSite = !!infoSite?.base.conflit
+  const bandeauBase = baseAutreSite && (
+    <div className="mb-4 bg-red-100 border-2 border-red-400 text-red-800 rounded-md p-3 text-sm">
+      <p className="font-bold">⚠️ Base du site « {infoSite!.base.code} » — cette application est configurée pour « {infoSite!.app} ».</p>
+      <p className="mt-1">Aucune saisie (arrivage, mouvement, item, utilisateur) ni réinitialisation n&apos;est acceptée sur cette base, pour ne pas mélanger les données. Corriger la variable <span className="font-mono">DATABASE_URL</span> de ce projet Vercel.</p>
+    </div>
+  )
+
   // --- Reset & Backup ---
   const handleReset = async () => {
+    if (baseAutreSite) return alert('⛔ Base d\'un autre site : réinitialisation refusée.')
     if (!confirm('⚠️ Effacer TOUTES les données ? Cette action est irréversible !')) return
     try { await fetch('/api/reset', { method: 'POST' }); alert('✅ Base réinitialisée'); chargerBobines(); chargerItems() } catch (e) { alert('❌ Erreur') }
   }
@@ -564,6 +580,7 @@ export default function Home() {
     } catch (e) { alert('❌ Erreur export') }
   }
   const handleImportBase = async () => {
+    if (baseAutreSite) return alert('⛔ Base d\'un autre site : import refusé.')
     if (!backupFile) return alert('⚠️ Sélectionnez un fichier CSV')
     if (!confirm('⚠️ Écraser toutes les données actuelles ?')) return
     try {
@@ -1177,6 +1194,7 @@ export default function Home() {
     return (
       <div className="min-h-screen p-2 sm:p-6" style={{ backgroundImage: degradeSite }}>
         <div className="max-w-4xl mx-auto">
+          {bandeauBase}
           <div className="bg-white rounded-xl shadow-lg p-4 mb-6 flex justify-between items-center">
             <div><p className="text-xs text-gray-600">Connecté en tant que</p><p className="font-bold text-blue-900">{currentUser}</p></div>
             <div className="flex items-center gap-3"><span className="px-3 py-1 rounded-full text-sm font-bold text-white" style={{ backgroundColor: SITE.accent }}>{SITE.code}</span><button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm">🚪 Déconnexion</button></div>
@@ -1197,8 +1215,9 @@ export default function Home() {
     return (
       <div className="min-h-screen p-2 sm:p-6">
         <div className="max-w-6xl mx-auto">
+          {bandeauBase}
           <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6 mb-6 flex flex-wrap justify-between items-center gap-2">
-            <div><h1 className="text-lg sm:text-2xl font-bold">🔐 Administration <span className="ml-2 text-sm bg-gray-200 text-gray-700 px-2 py-1 rounded align-middle">Version {APP_VERSION}</span></h1><p className="text-sm text-gray-600">Super Admin : {currentUser}</p></div>
+            <div><h1 className="text-lg sm:text-2xl font-bold">🔐 Administration <span className="ml-2 text-sm bg-gray-200 text-gray-700 px-2 py-1 rounded align-middle">Version {APP_VERSION}</span><span className="ml-2 text-sm px-2 py-1 rounded align-middle text-white" style={{ backgroundColor: SITE.accent }}>{infoSite?.app ?? SITE.code}</span></h1><p className="text-sm text-gray-600">Super Admin : {currentUser}</p><p className="text-xs text-gray-500 mt-1">Base « {infoSite?.connexion.base ?? '…'} » sur {infoSite?.connexion.hote ?? '…'} · {infoSite?.stats.bobines ?? '…'} bobines · {infoSite?.stats.mouvements ?? '…'} mouvements · {infoSite?.stats.utilisateurs ?? '…'} utilisateurs{infoSite ? (infoSite.base.conflit ? ' · ⚠️ propriétaire : ' + infoSite.base.code : ' · propriétaire : ' + infoSite.base.code) : ''}</p></div>
             <button onClick={() => { setCurrentPage('home'); setAutreSection('actions') }} className="bg-gray-600 text-white px-4 py-2 rounded-lg">← Accueil</button>
           </div>
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6">

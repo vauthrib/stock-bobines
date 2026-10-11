@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { refusEcritureAutreSite } from '@/lib/site-base'
 
 function parseCsvLine(line: string): string[] {
   const result: string[] = []
@@ -49,6 +50,10 @@ function parseDate(dateStr: string): Date | null {
 
 export async function POST(request: NextRequest) {
   try {
+    // Jamais d'import (donc d'écrasement) sur la base d'un autre site
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const formData = await request.formData()
     const allFile = formData.get('all') as File | null
 

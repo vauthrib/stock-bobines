@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { refusEcritureAutreSite } from '@/lib/site-base'
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const { id } = await params
     const receptionId = parseInt(id)
     const data = await request.json()

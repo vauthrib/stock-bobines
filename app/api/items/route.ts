@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { refusEcritureAutreSite } from '@/lib/site-base'
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,6 +23,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const data = await request.json()
     
     const item = await prisma.itemPersonnalise.create({
@@ -46,6 +50,9 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const data = await request.json()
     
     const item = await prisma.itemPersonnalise.update({
@@ -70,6 +77,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
     

@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { refusEcritureAutreSite } from '@/lib/site-base'
 
 export async function POST() {
   try {
+    const refus = await refusEcritureAutreSite()
+    if (refus) return refus
+
     const count = await prisma.user.count()
     
     if (count > 0) {

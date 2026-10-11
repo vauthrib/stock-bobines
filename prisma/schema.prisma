@@ -107,6 +107,16 @@ enum CategorieItem {
   REVETEMENT
 }
 
+// Marqueur de la base : quel site (RGM, SRGA, ARIV) possède cette base.
+// Écrit au premier démarrage, puis comparé à la configuration : toute écriture
+// est refusée si la base appartient déjà à un autre site (données non croisées).
+model Parametre {
+  cle     String @id @db.VarChar(50)
+  valeur  String @db.VarChar(255)
+
+  @@map("parametres")
+}
+
 model ConnectionLog {
   id              Int       @id @default(autoincrement())
   utilisateur     String    @db.VarChar(50)
