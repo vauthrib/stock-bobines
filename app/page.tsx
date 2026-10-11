@@ -80,7 +80,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.37'
+const APP_VERSION = 'V1.40'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -1441,8 +1441,8 @@ export default function Home() {
               return (
                 <div key={g.key} className="border rounded-md overflow-hidden">
                   <div className="bg-gray-100 px-4 py-2">
-                    <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span className={couleurRevetement(p.rev)}>{p.t}</span> : p.t}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span className={couleurRevetement(p.rev)}>{p.t}</span> : p.t}</Fragment>)) : g.sousTitre}</span></p>
-                    <p className="text-xs text-gray-600 mt-0.5">{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en stock {pStock.toFixed(2)} kg · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
+                    <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span className={couleurRevetement(p.rev)}>{p.t}</span> : (groupeAnalyse === 'diametre' && i === 0 ? <span className="text-lg sm:text-xl">{p.t}</span> : p.t)}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{groupeAnalyse === 'diametre' && g.label ? <span className="text-lg sm:text-xl">{g.label}</span> : g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span className={couleurRevetement(p.rev)}>{p.t}</span> : p.t}</Fragment>)) : g.sousTitre}</span></p>
+                    <p className="text-xs text-gray-600 mt-0.5"><span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
                     <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-left">Arrivée</th><th className="px-3 py-2 text-left">Sorties usine</th><th className="px-3 py-2 text-left">Retours usine</th><th className="px-3 py-2 text-left">Mise en déchet</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
