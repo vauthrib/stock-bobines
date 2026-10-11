@@ -66,6 +66,10 @@ export const poidsLorsMouvements = (mvts: MvtHistorique[], poidsInitial: number)
   return poids
 }
 
+// Poids net qui a changé de lieu : sorties vers l'usine − retours vers le stock
+// (le poids réellement consommé par l'usine, plus celui qui y est encore)
+export const poidsNet = (poidsSorties: number, poidsRetours: number) => poidsSorties - poidsRetours
+
 // Poids à afficher pour un mouvement : le poids enregistré, sinon le poids reconstitué
 export const poidsAffiche = (m: MvtPondere, poidsReconstitue?: number) => {
   const p = parseFloat(String(m.poids_mouvement)) || 0

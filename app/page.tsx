@@ -6,7 +6,7 @@ import { Html5QrcodeScanner } from 'html5-qrcode'
 import { QRCodeSVG } from 'qrcode.react'
 import { REVETEMENTS_BASE, couleurRevetementDefaut, classeStyleDurete, COULEURS_PROPOSEES, STYLES_DURETE } from '@/lib/revetement'
 import { nombreCsv } from '@/lib/csv'
-import { isoJour, jourIlYaMois, mouvementsPeriode, poidsMouvements, libellePeriode, poidsLorsMouvements, poidsAffiche, versUsine, dansPeriode } from '@/lib/analyse'
+import { isoJour, jourIlYaMois, mouvementsPeriode, poidsMouvements, libellePeriode, poidsLorsMouvements, poidsAffiche, versUsine, dansPeriode, poidsNet } from '@/lib/analyse'
 
 // ================= TYPES =================
 
@@ -81,7 +81,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.43'
+const APP_VERSION = 'V1.44'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -872,7 +872,7 @@ export default function Home() {
 
   // --- ANALYSE par mouvements : transferts stock → usine de la période choisie ---
   const analyseTransfers = useMemo(() => {
-    const map = new Map<number, { transferts: TransfertBobine[]; poids: number; retours: MvtAnalyse[]; poidsRetours: number }>()
+    const map = new Map<number, { transferts: TransfertBobine[]; poids: number; retours: MvtAnalyse[]; poidsRetours: number; poidsNet: number }>()
     for (const l of lignesAnalyse) {
       // Le poids qui change de lieu est reconstitué depuis l'historique (les sorties vers
       // l'usine ne portent pas de poids) puis limité à la période choisie
@@ -881,15 +881,20 @@ export default function Home() {
         .map((m, i) => ({ mvt: m, poids: poidsParMouvement.get(i) ?? 0 }))
         .filter(t => versUsine(t.mvt.type_mouvement) && dansPeriode(t.mvt.date_mouvement, mouvDebut, mouvFin))
       const retours = mouvementsPeriode(l.retoursUsine, mouvDebut, mouvFin)
-      map.set(l.id, { transferts, poids: transferts.reduce((s, t) => s + t.poids, 0), retours, poidsRetours: poidsMouvements(retours) })
+      // Poids affiché = poids net qui a quitté le stock : sorties vers l'usine − retours vers le stock
+      const poidsSorties = transferts.reduce((s, t) => s + t.poids, 0)
+      const poidsRetours = poidsMouvements(retours)
+      map.set(l.id, { transferts, poids: poidsSorties, retours, poidsRetours, poidsNet: poidsNet(poidsSorties, poidsRetours) })
     }
     return map
   }, [lignesAnalyse, mouvDebut, mouvFin])
 
-  // Transferts affichés pour une bobine : ceux de la période en mode mouvements, sinon l'historique complet
+  // Transferts / retours affichés pour une bobine : ceux de la période en mode mouvements,
+  // sinon l'historique complet
   const transfertsAffiches = (l: LigneAnalyse): TransfertBobine[] => groupeAnalyse === 'mouvements'
     ? (analyseTransfers.get(l.id)?.transferts ?? [])
     : l.sortiesUsine.map(m => ({ mvt: m, poids: poidsMouvements([m]) }))
+  const retoursAffiches = (l: LigneAnalyse) => groupeAnalyse === 'mouvements' ? (analyseTransfers.get(l.id)?.retours ?? []) : l.retoursUsine
 
   // Duretés / revêtements proposés restreints à la dimension choisie (comme l'État du stock)
   const analyseDuretesDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => !analyseDimSels.length || analyseDimSels.includes(l.dimension)).map(l => l.durete))).sort(), [lignesAnalyse, analyseDimSels])
@@ -992,8 +997,8 @@ export default function Home() {
         if (analyseDimSels.length) g.sousTitre = `${g.bobines.length} bobine(s) dans cette dureté et revêtement`
       }
     }
-    // Tri : par poids transféré décroissant en mode mouvements, sinon comme avant
-    const poidsGroupe = (g: GroupeAnalyse) => g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poids || 0), 0)
+    // Tri : par poids net transféré (sorties − retours) décroissant en mode mouvements, sinon comme avant
+    const poidsGroupe = (g: GroupeAnalyse) => g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poidsNet || 0), 0)
     res.sort((a, b) => {
       if (groupeAnalyse === 'mouvements') return poidsGroupe(b) - poidsGroupe(a) || a.key.localeCompare(b.key)
       return groupeAnalyse === 'diametre' ? (numOf(a.key) - numOf(b.key) || a.key.localeCompare(b.key)) : a.key.localeCompare(b.key)
@@ -1016,23 +1021,24 @@ export default function Home() {
   }, [analyseFiltrees])
 
   // --- ANALYSE par mouvements : totaux de la période choisie ---
+  // Même périmètre que les groupes affichés : bobines ayant changé de lieu vers l'usine sur la période
   const analyseTotalTransfers = useMemo(() => {
     let poidsTransferts = 0, nbTransferts = 0, poidsRetours = 0, nbRetours = 0, nbBobines = 0
     for (const l of analyseFiltrees) {
       const t = analyseTransfers.get(l.id)
-      if (!t) continue
-      if (t.transferts.length) nbBobines++
+      if (!t || !t.transferts.length) continue
+      nbBobines++
       poidsTransferts += t.poids; nbTransferts += t.transferts.length
       poidsRetours += t.poidsRetours; nbRetours += t.retours.length
     }
-    return { poidsTransferts, nbTransferts, poidsRetours, nbRetours, nbBobines }
+    return { poidsTransferts, poidsRetours, nbTransferts, nbRetours, nbBobines, poidsNet: poidsNet(poidsTransferts, poidsRetours) }
   }, [analyseFiltrees, analyseTransfers])
 
   // --- ANALYSE : exports CSV ---
   const handleExportAnalyseSynthese = () => {
     const lignes: string[][] = [
       [`Analyse des mouvements — exporté le ${fmtDateAnalyse(new Date().toISOString())}${analysePeriodeActive() ? ` — Sélection : ${analysePeriodeActive()}` : ''}`],
-      ['Groupe', 'Cmd fab (recherche)', 'Lot', 'Fournisseur', 'N° commande', 'Type produit', 'Dimension', 'Code bobine', 'Poids initial (kg)', 'Date arrivée', 'Nb sorties usine', 'Dates sorties usine', 'Nb transferts stock→usine', 'Poids transféré stock→usine (kg)', 'Transferts stock→usine (date + poids kg)', 'Nb retours usine', 'Retours usine (date + poids kg)', 'Date mise en déchet', 'Poids actuel (kg)', 'Statut', 'Lieu actuel', 'N° commande fabrication', 'Matière', 'Dureté', 'Revêtement']
+      ['Groupe', 'Cmd fab (recherche)', 'Lot', 'Fournisseur', 'N° commande', 'Type produit', 'Dimension', 'Code bobine', 'Poids initial (kg)', 'Date arrivée', 'Nb sorties usine', 'Dates sorties usine', 'Nb transferts stock→usine', 'Sorties stock→usine période (kg)', 'Retours période (kg)', 'Net stock→usine période (kg)', 'Transferts stock→usine (date + poids kg)', 'Nb retours usine', 'Retours usine (date + poids kg)', 'Date mise en déchet', 'Poids actuel (kg)', 'Statut', 'Lieu actuel', 'N° commande fabrication', 'Matière', 'Dureté', 'Revêtement']
     ]
     for (const g of analyseGroupes) {
       for (const l of g.bobines) {
@@ -1052,6 +1058,8 @@ export default function Home() {
           l.sortiesUsine.map(m => fmtDateAnalyse(m.date_mouvement)).join(' + '),
           String(tr?.transferts.length ?? 0),
           (tr?.poids ?? 0).toFixed(2),
+          (tr?.poidsRetours ?? 0).toFixed(2),
+          (tr?.poidsNet ?? 0).toFixed(2),
           (tr?.transferts ?? []).map(t => `${fmtDateAnalyse(t.mvt.date_mouvement)} (${t.poids.toFixed(2)} kg)`).join(' + '),
           String(l.retoursUsine.length),
           l.retoursUsine.map(m => `${fmtDateAnalyse(m.date_mouvement)} (${parseFloat(m.poids_mouvement).toFixed(2)} kg)`).join(' + '),
@@ -1421,7 +1429,7 @@ export default function Home() {
           </div>
           {groupeAnalyse === 'mouvements' && (
             <div className="mt-3 bg-white border border-orange-300 rounded-md p-3">
-              <p className="text-xs text-gray-700 font-medium mb-2">{"Période des changements de lieu (stock → usine) — l'affichage est trié par poids transféré"}</p>
+              <p className="text-xs text-gray-700 font-medium mb-2">{"Période des changements de lieu (stock → usine) — affichage trié par poids net, sorties moins retours"}</p>
               <div className="flex flex-wrap items-center gap-2">
                 {([['tout', 'Tout'], ['3m', '3 mois'], ['6m', '6 mois'], ['12m', '12 mois']] as const).map(([k, lbl]) => (
                   <button key={k} onClick={() => appliquerPresetMouv(k)} className={`px-3 py-1 rounded-md text-sm ${mouvPreset === k ? 'bg-orange-600 text-white' : 'bg-white border'}`}>{lbl}</button>
@@ -1430,7 +1438,7 @@ export default function Home() {
                 <label className="text-xs text-gray-700">Début <input type="date" value={mouvDebut} onChange={e => { setMouvDebut(e.target.value); setMouvPreset('perso') }} className="ml-1 px-2 py-1 border rounded-md text-sm" /></label>
                 <label className="text-xs text-gray-700">Fin <input type="date" value={mouvFin} onChange={e => { setMouvFin(e.target.value); setMouvPreset('perso') }} className="ml-1 px-2 py-1 border rounded-md text-sm" /></label>
               </div>
-              <p className="text-xs text-gray-600 mt-2">Période active : <span className="font-semibold text-orange-700">{libellePeriodeMouv()}</span> — {analyseTotalTransfers.poidsTransferts.toFixed(2)} kg transférés en {analyseTotalTransfers.nbTransferts} mouvement(s)</p>
+              <p className="text-xs text-gray-600 mt-2">Période active : <span className="font-semibold text-orange-700">{libellePeriodeMouv()}</span> — net stock → usine : <span className="font-semibold text-orange-700">{analyseTotalTransfers.poidsNet.toFixed(2)} kg</span> (sorties {analyseTotalTransfers.poidsTransferts.toFixed(2)} kg − retours {analyseTotalTransfers.poidsRetours.toFixed(2)} kg en {analyseTotalTransfers.nbTransferts} mouvement(s))</p>
             </div>
           )}
           <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1539,9 +1547,9 @@ export default function Home() {
           <div className="bg-purple-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Sorties usine / retours</p><p className="text-xl font-bold text-purple-800">{analyseTotal.nbSorties} / {analyseTotal.nbRetours}</p><p className="text-xs text-gray-500">Rebuts : {analyseTotal.nbRebuts}</p></div>
           {groupeAnalyse === 'mouvements' && (
             <div className="bg-orange-50 border-2 border-orange-300 rounded-md p-3 text-center">
-              <p className="text-xs text-gray-600">Transféré stock → usine</p>
-              <p className="text-xl font-bold text-orange-700">{analyseTotalTransfers.poidsTransferts.toFixed(2)} kg</p>
-              <p className="text-xs text-gray-500">{analyseTotalTransfers.nbTransferts} transfert(s) · {analyseTotalTransfers.nbBobines} bobine(s) · {libellePeriodeMouv()}</p>
+              <p className="text-xs text-gray-600">Net stock → usine (sorties − retours)</p>
+              <p className="text-xl font-bold text-orange-700">{analyseTotalTransfers.poidsNet.toFixed(2)} kg</p>
+              <p className="text-xs text-gray-500">sorties {analyseTotalTransfers.poidsTransferts.toFixed(2)} kg − retours {analyseTotalTransfers.poidsRetours.toFixed(2)} kg · {analyseTotalTransfers.nbTransferts} transfert(s) · {analyseTotalTransfers.nbBobines} bobine(s) · {libellePeriodeMouv()}</p>
             </div>
           )}
         </div>
@@ -1636,7 +1644,9 @@ export default function Home() {
               const pInit = g.bobines.reduce((s, l) => s + l.poidsInitial, 0)
               const pStock = g.bobines.filter(l => l.lieu === 'STOCK_PRINCIPAL').reduce((s, l) => s + l.poidsActuel, 0)
               const pUsine = g.bobines.filter(l => l.lieu === 'USINE').reduce((s, l) => s + l.poidsActuel, 0)
-              const pTransfere = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poids || 0), 0)
+              const pTransfere = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poidsNet || 0), 0)
+              const pSorties = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poids || 0), 0)
+              const pRetours = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poidsRetours || 0), 0)
               const nSorties = groupeAnalyse === 'mouvements'
                 ? g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.transferts.length || 0), 0)
                 : g.bobines.reduce((s, l) => s + l.sortiesUsine.length, 0)
@@ -1648,10 +1658,10 @@ export default function Home() {
                 <div key={g.key} className="border rounded-md overflow-hidden">
                   <div className="bg-gray-100 px-4 py-2">
                     <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : (groupeAnalyse === 'diametre' && i === 0 ? <span className="text-lg sm:text-xl">{p.t}</span> : p.t)}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{groupeAnalyse === 'diametre' && g.label ? <span className="text-lg sm:text-xl">{g.label}</span> : g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : p.t}</Fragment>)) : g.sousTitre}</span></p>
-                    <p className="text-xs text-gray-600 mt-0.5">{groupeAnalyse === 'mouvements' && (<><span className="font-bold text-orange-700 text-lg sm:text-xl">transféré stock → usine : {pTransfere.toFixed(2)} kg</span>{' · '}</>)}<span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg · {nSorties} {groupeAnalyse === 'mouvements' ? 'transfert(s) stock→usine' : 'sortie(s) usine'} · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
+                    <p className="text-xs text-gray-600 mt-0.5">{groupeAnalyse === 'mouvements' && (<><span className="font-bold text-orange-700 text-lg sm:text-xl">net stock → usine : {pTransfere.toFixed(2)} kg</span>{' · '}</>)}<span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg{groupeAnalyse === 'mouvements' && <> · sorties {pSorties.toFixed(2)} kg − retours {pRetours.toFixed(2)} kg</>} · {nSorties} {groupeAnalyse === 'mouvements' ? 'transfert(s) stock→usine' : 'sortie(s) usine'} · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
-                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-left">Arrivée</th><th className="px-3 py-2 text-left">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-3 py-2 text-left">Retours usine</th><th className="px-3 py-2 text-left">Mise en déchet</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
+                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-left">Arrivée</th><th className="px-3 py-2 text-left">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-3 py-2 text-left">{groupeAnalyse === 'mouvements' ? 'Retours (période)' : 'Retours usine'}</th><th className="px-3 py-2 text-left">Mise en déchet</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
                     <tbody>
                       {g.bobines.map(l => (
                         <Fragment key={l.id}>
@@ -1660,8 +1670,8 @@ export default function Home() {
                             <td className="px-3 py-2">{l.dimension}</td>
                             <td className="px-3 py-2 text-right">{l.poidsInitial.toFixed(2)}</td>
                             <td className="px-3 py-2 whitespace-nowrap">{fmtDateAnalyse(l.arrivee)}</td>
-                            <td className="px-3 py-2 text-xs">{transfertsAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : transfertsAffiches(l).map((t, i) => <div key={i}>{fmtDateAnalyse(t.mvt.date_mouvement)}{groupeAnalyse === 'mouvements' ? ` (${t.poids.toFixed(2)} kg)` : ''}</div>)}</td>
-                            <td className="px-3 py-2 text-xs">{l.retoursUsine.length === 0 ? <span className="text-gray-400">-</span> : l.retoursUsine.map((m, i) => <div key={i}>{fmtDateAnalyse(m.date_mouvement)} ({parseFloat(m.poids_mouvement).toFixed(2)} kg)</div>)}</td>
+                            <td className="px-3 py-2 text-xs">{transfertsAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : <>{transfertsAffiches(l).map((t, i) => <div key={i}>{fmtDateAnalyse(t.mvt.date_mouvement)}{groupeAnalyse === 'mouvements' ? ` (${t.poids.toFixed(2)} kg)` : ''}</div>)}{groupeAnalyse === 'mouvements' && <div className="font-semibold text-orange-700">net : {(analyseTransfers.get(l.id)?.poidsNet ?? 0).toFixed(2)} kg</div>}</>}</td>
+                            <td className="px-3 py-2 text-xs">{retoursAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : retoursAffiches(l).map((m, i) => <div key={i}>{fmtDateAnalyse(m.date_mouvement)} ({parseFloat(m.poids_mouvement).toFixed(2)} kg)</div>)}</td>
                             <td className="px-3 py-2 text-xs text-red-700">{l.dechets.map((m, i) => <div key={i}>🗑️ {fmtDateAnalyse(m.date_mouvement)}</div>)}</td>
                             <td className="px-3 py-2 text-right font-semibold text-green-800">{l.poidsActuel.toFixed(2)}</td>
                             <td className="px-3 py-2 text-xs">{LIBELLES_STATUT[l.statut] || l.statut}</td>
