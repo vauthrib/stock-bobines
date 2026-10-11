@@ -80,7 +80,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.34'
+const APP_VERSION = 'V1.35'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
