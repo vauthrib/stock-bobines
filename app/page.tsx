@@ -58,7 +58,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.30'
+const APP_VERSION = 'V1.31'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -1251,7 +1251,7 @@ export default function Home() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div className="bg-blue-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Bobines</p><p className="text-xl font-bold text-blue-800">{analyseTotal.nbBobines}</p></div>
           <div className="bg-gray-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Poids initial total</p><p className="text-xl font-bold text-gray-800">{analyseTotal.poidsInitial.toFixed(2)} kg</p></div>
-          <div className="bg-green-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">En stock</p><p className="text-xl font-bold text-green-800">{analyseTotal.poidsStock.toFixed(2)} kg</p><p className="text-xs text-gray-500">En usine : {analyseTotal.poidsUsine.toFixed(2)} kg</p></div>
+          <div className="bg-green-50 border-2 border-green-300 rounded-md p-3 text-center"><p className="text-xs text-gray-600">En stock</p><p className="text-4xl font-bold text-green-800">{analyseTotal.poidsStock.toFixed(2)} kg</p><p className="text-xs text-gray-500">En usine : {analyseTotal.poidsUsine.toFixed(2)} kg</p></div>
           <div className="bg-purple-50 border rounded-md p-3 text-center"><p className="text-xs text-gray-600">Sorties usine / retours</p><p className="text-xl font-bold text-purple-800">{analyseTotal.nbSorties} / {analyseTotal.nbRetours}</p><p className="text-xs text-gray-500">Rebuts : {analyseTotal.nbRebuts}</p></div>
         </div>
         <div className="flex flex-wrap gap-3 mb-6">
