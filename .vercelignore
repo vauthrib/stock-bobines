@@ -1,0 +1,8 @@
+# Fichiers qui ne doivent JAMAIS être envoyés dans un déploiement Vercel :
+# chaînes de connexion (.env de chaque site) et sauvegardes de données locales.
+.env
+.env.*
+backups/
+backups
+.freebuff/
+.vercel/

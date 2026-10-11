@@ -8,10 +8,29 @@ seules trois variables d'environnement changent.
 | | RGM (existant) | SRGA | ARIV |
 |---|---|---|---|
 | Dépôt GitHub | `vauthrib/stock-bobines` | `vauthrib/stock-bobines-srga` | `vauthrib/stock-bobines-ariv` |
-| Projet Vercel | `stock-bobines` | à créer | à créer |
-| Base Neon | existante | à créer | à créer |
-| `NEXT_PUBLIC_SITE` | `RGM` | `SRGA` | `ARIV` |
+| Projet Vercel | `stock-bobines` | `stock-bobines-srga` | `stock-bobines-ariv` |
+| Adresse publique | `https://stock-bobines.vercel.app` | `https://stock-bobines-srga.vercel.app` | `https://stock-bobines-ariv.vercel.app` |
+| Base Neon | `ep-restless-tooth-asxt7eaw` | `ep-mute-shape-b5at7hhg` | `ep-solitary-dust-b4vaihs7` |
+| `NEXT_PUBLIC_SITE` | absent (= `RGM`) | `SRGA` | `ARIV` |
 | Couleur de fond | vert | rose | bleu |
+
+## État au 11/10/2026
+
+- Les trois sites sont **en ligne en production** (RGM en V1.46, SRGA et ARIV en V1.46)
+  et servent chacun **sa propre base** : `GET /api/site` renvoie `conflit: false` avec l'hôte
+  `neon.tech` attendu (trois hôtes distincts) et le bon marqueur de site.
+- Les projets Vercel `stock-bobines-srga` et `stock-bobines-ariv` ont leurs variables
+  `DATABASE_URL`, `NEXT_PUBLIC_SITE` et `NEXT_PUBLIC_SITE_URL` sur l'environnement *Production*
+  uniquement : un déploiement *Preview* de ces projets n'a pas de base tant que `DATABASE_URL`
+  n'y est pas ajoutée (`vercel env add DATABASE_URL preview`).
+- Les comptes Neon sont regroupés sous le compte **vauthrib3@gmail.com**.
+- Les deux nouveaux sites ont démarré avec les **quatre comptes par défaut** (`POST /api/users/init`) :
+  changer les mots de passe et supprimer les comptes inutiles depuis **Administration → Utilisateurs**.
+- Le fichier `.vercelignore` garantit que `.env*`, `backups/`, `.vercel/`, `.git/` et `node_modules/`
+  ne sont **jamais téléversés** vers Vercel (vérifié avec `vercel deploy --dry`).
+- Reste à faire : passer les **trois dépôts GitHub en privé** (§ 0 bis) ; les deux nouveaux projets
+  Vercel sont déployés en ligne de commande, l'**auto-déploiement à chaque `git push`** demande de
+  connecter le dépôt au projet (**Project → Settings → Git → Connect Git Repository**).
 
 ## Variables d'environnement (une valeur par site)
 
@@ -49,7 +68,7 @@ Si le dépôt n'apparaît plus, autoriser les dépôts privés : **Vercel → Ac
 Integrations → GitHub → Configure → Repository access**. Les `git push` continuent de fonctionner
 (identifiants déjà enregistrés sur ce poste).
 
-## 1. Créer la base de données
+## 1. Créer la base de données *(fait pour SRGA et ARIV)*
 
 1. [console.neon.tech](https://console.neon.tech) → **New Project** (par ex. `stock-bobines-srga`) —
    **pas** une branche du projet de RGM.
@@ -62,7 +81,7 @@ Integrations → GitHub → Configure → Repository access**. Les `git push` co
 DATABASE_URL="$(tr -d '\r\n' < .env.srga)" npx prisma db push
 ```
 
-## 2. Créer le projet Vercel
+## 2. Créer le projet Vercel *(fait pour SRGA et ARIV)*
 
 **Méthode A — tableau de bord (garde le déploiement automatique à chaque `git push`)**
 
@@ -76,15 +95,24 @@ DATABASE_URL="$(tr -d '\r\n' < .env.srga)" npx prisma db push
    | `NEXT_PUBLIC_SITE_URL` | `https://stock-bobines-srga.vercel.app` (à ajuster après le premier déploiement) |
 3. Déployer.
 
-**Méthode B — ligne de commande** (la valeur du secret n'est jamais affichée à l'écran) :
+**Méthode B — ligne de commande** (la valeur du secret n'est jamais affichée à l'écran).
+C'est la méthode utilisée pour SRGA et ARIV ; `--project` évite de toucher au projet de RGM,
+et `--no-sensitive` garde `NEXT_PUBLIC_*` lisible (elles sont publiques de toute façon) :
 
 ```bash
-vercel link                      # associer ce dossier au projet du site
-vercel env add DATABASE_URL production < .env.srga
-vercel env add NEXT_PUBLIC_SITE production          # saisir SRGA
-vercel env add NEXT_PUBLIC_SITE_URL production      # saisir l'adresse du site
-vercel deploy --prod
+# lecture de la chaîne sans l'afficher : la valeur ne passe jamais par le terminal
+lire_url() { grep -E '^DATABASE_URL=' "$1" | head -1 | sed -E 's/^DATABASE_URL=//' | tr -d '\r'; }
+
+S=stock-bobines-srga
+vercel env add DATABASE_URL        production --project "$S" --value "$(lire_url .env.srga)" --sensitive -y
+vercel env add NEXT_PUBLIC_SITE    production --project "$S" --value SRGA --no-sensitive -y
+vercel env add NEXT_PUBLIC_SITE_URL production --project "$S" --value "https://$S.vercel.app" --no-sensitive -y
+
+vercel deploy --prod --project "$S" --yes    # ne déploie que ce projet
 ```
+
+> Toujours mettre `-y` **et** brancher l'entrée standard (`< /dev/null`) : sans cela la commande
+> attend une saisie et semble se bloquer.
 
 ## 3. Créer les comptes du site
 
@@ -114,6 +142,24 @@ une seule source de vérité, trois dépôts.
 - L'écran de connexion doit porter le **badge du site** et sa couleur : RGM vert, SRGA rose, ARIV bleu.
 - `GET /api/bobines` doit renvoyer uniquement les données de ce site (bases distinctes).
 - Sur place : se connecter, saisir un arrivage test, vérifier l'**État du stock** et l'**Analyse des mouvements**.
+
+Contrôles rapides, sans dépendance ni installation :
+
+```bash
+# identité du site, site propriétaire de la base, adresse de la base et compteurs
+git config --get remote.origin.url   # rappel du dépôt courant
+curl -s https://stock-bobines-srga.vercel.app/api/site
+
+# schéma, compteurs et poids d'une base, depuis un fichier .env
+node scripts/verif-base.mjs --env .env.srga
+node scripts/verif-base.mjs --env .env       # RGM : témoin
+```
+
+Réponse attendue pour un site correctement rattaché : `"conflit": false`, `base.code` égal au
+site, et un hôte `neon.tech` **différent** de celui des autres sites. En cas de `conflit: true`,
+un bandeau rouge s'affiche dans l'application et les écritures sont refusées (HTTP 409) :
+c'est le garde-fou, il ne faut **pas** le contourner, mais corriger `DATABASE_URL`
+ou `NEXT_PUBLIC_SITE`.
 
 ## Points d'attention
 
