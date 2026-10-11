@@ -59,7 +59,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.32'
+const APP_VERSION = 'V1.33'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -145,7 +145,9 @@ type LigneAnalyse = {
   mvts: MvtAnalyse[]
 }
 
-type GroupeAnalyse = { key: string; icone: string; label: string; sousTitre: string; bobines: LigneAnalyse[] }
+// Morceau de libellé d'un groupe d'analyse ; rev = revêtement à colorer
+type PartieLibelle = { t: string; rev?: string }
+type GroupeAnalyse = { key: string; icone: string; label: string; sousTitre: string; parties: PartieLibelle[]; sousTitreParts: PartieLibelle[]; bobines: LigneAnalyse[] }
 
 const LIBELLES_STATUT: Record<string, string> = { EN_STOCK: 'En stock', PARTIELLE: 'Partielle', VIDE: 'Vide', DECHET: 'Déchet' }
 const LIBELLES_LIEU: Record<string, string> = { STOCK_PRINCIPAL: 'Stock', USINE: 'Usine', DECHET: 'Déchet' }
@@ -783,9 +785,11 @@ export default function Home() {
     const groupes = new Map<string, GroupeAnalyse>()
     for (const l of analyseFiltrees) {
       let key = '', icone = '📦', label = ''
+      let parties: PartieLibelle[] = []
       if (groupeAnalyse === 'lot') {
         key = `${l.fournisseur}-${l.numCommande}-${l.typeProduit}`
         label = `Lot ${l.lot}`
+        parties = [{ t: l.dimension }, { t: l.revetement, rev: l.revetement }, { t: l.durete }]
       } else if (groupeAnalyse === 'fournisseur') {
         key = l.fournisseur
         icone = '🏭'; label = l.fournisseur
@@ -795,11 +799,12 @@ export default function Home() {
         // Dimension(s) choisie(s) : une ligne par couple Ø · dureté · revêtement
         if (analyseDimSels.length) {
           key = `${l.dimension} · ${l.durete} · ${l.revetement}`
-          label = `${l.dimension} · ${l.durete} · ${l.revetement}`
+          label = ''
+          parties = [{ t: l.dimension }, { t: l.durete }, { t: l.revetement, rev: l.revetement }]
         }
       }
       let g = groupes.get(key)
-      if (!g) { g = { key, icone, label, sousTitre: '', bobines: [] }; groupes.set(key, g) }
+      if (!g) { g = { key, icone, label, sousTitre: '', parties, sousTitreParts: [], bobines: [] }; groupes.set(key, g) }
       g.bobines.push(l)
     }
     const res = Array.from(groupes.values())
@@ -807,7 +812,10 @@ export default function Home() {
       g.bobines.sort((a, b) => a.code.localeCompare(b.code))
       if (groupeAnalyse === 'lot') {
         const l = g.bobines[0]
-        if (l) g.sousTitre = `Fournisseur ${l.fournisseur} · Reçu le ${fmtDateAnalyse(l.dateReception)} · ${l.matiere} · ${l.durete} · ${l.revetement}`
+        if (l) {
+          g.sousTitre = `Fournisseur ${l.fournisseur} · Reçu le ${fmtDateAnalyse(l.dateReception)} · ${l.matiere} · ${l.durete} · ${l.revetement}`
+          g.sousTitreParts = [{ t: `Fournisseur ${l.fournisseur}` }, { t: `Reçu le ${fmtDateAnalyse(l.dateReception)}` }, { t: l.matiere }, { t: l.durete }, { t: l.revetement, rev: l.revetement }]
+        }
       } else if (groupeAnalyse === 'fournisseur') {
         g.sousTitre = `${new Set(g.bobines.map(b => b.lot)).size} lot(s)`
       } else {
@@ -1231,7 +1239,7 @@ export default function Home() {
                 <label className="block text-xs text-gray-600 mb-1">Revêtement</label>
                 <select value={analyseRevSel} onChange={e => setAnalyseRevSel(e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm">
                   <option value="">Tous les revêtements</option>
-                  {analyseRevsDispo.map(r => (<option key={r} value={r}>{r}</option>))}
+                  {analyseRevsDispo.map(r => (<option key={r} value={r} className={couleurRevetement(r)}>{r}</option>))}
                 </select>
               </div>
             </>)}
@@ -1354,7 +1362,7 @@ export default function Home() {
               return (
                 <div key={g.key} className="border rounded-md overflow-hidden">
                   <div className="bg-gray-100 px-4 py-2">
-                    <p className="font-bold text-gray-800">{g.icone} {groupeAnalyse === 'lot' && g.bobines[0] ? `${g.bobines[0].dimension} · ` : ''}{groupeAnalyse === 'lot' && g.bobines[0] && <span className={couleurRevetement(g.bobines[0].revetement)}>{g.bobines[0].revetement}</span>}{groupeAnalyse === 'lot' && g.bobines[0] ? ` · ${g.bobines[0].durete} · ` : ''}{g.label} <span className="text-xs font-normal text-gray-600">{g.sousTitre}</span></p>
+                    <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span className={couleurRevetement(p.rev)}>{p.t}</span> : p.t}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span className={couleurRevetement(p.rev)}>{p.t}</span> : p.t}</Fragment>)) : g.sousTitre}</span></p>
                     <p className="text-xs text-gray-600 mt-0.5">{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en stock {pStock.toFixed(2)} kg · en usine {pUsine.toFixed(2)} kg · {nSorties} sortie(s) usine · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-sm">
