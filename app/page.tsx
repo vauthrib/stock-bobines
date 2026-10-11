@@ -81,7 +81,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.42'
+const APP_VERSION = 'V1.43'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -461,6 +461,9 @@ export default function Home() {
   const [mouvDebut, setMouvDebut] = useState('')
   const [mouvFin, setMouvFin] = useState('')
   const [mouvPreset, setMouvPreset] = useState<'tout' | '3m' | '6m' | '12m' | 'perso'>('tout')
+  // Analyse par mouvements : filtres dureté / revêtement (sélection multiple)
+  const [mouvDureteSels, setMouvDureteSels] = useState<string[]>([])
+  const [mouvRevSels, setMouvRevSels] = useState<string[]>([])
 
   const scannerRef = useRef<Html5QrcodeScanner | null>(null)
   const getBaseUrl = () => typeof window !== 'undefined' ? window.location.origin : 'https://stock-bobines.vercel.app'
@@ -862,8 +865,10 @@ export default function Home() {
     if (analyseDimSels.length) res = res.filter(l => analyseDimSels.includes(l.dimension))
     if (analyseDureteSel) res = res.filter(l => l.durete === analyseDureteSel)
     if (analyseRevSel) res = res.filter(l => l.revetement === analyseRevSel)
+    if (mouvDureteSels.length) res = res.filter(l => mouvDureteSels.includes(l.durete))
+    if (mouvRevSels.length) res = res.filter(l => mouvRevSels.includes(l.revetement))
     return res
-  }, [lignesAnalyse, analyseLotSel, analyseFournSel, analyseDimSels, analyseDureteSel, analyseRevSel])
+  }, [lignesAnalyse, analyseLotSel, analyseFournSel, analyseDimSels, analyseDureteSel, analyseRevSel, mouvDureteSels, mouvRevSels])
 
   // --- ANALYSE par mouvements : transferts stock → usine de la période choisie ---
   const analyseTransfers = useMemo(() => {
@@ -926,6 +931,8 @@ export default function Home() {
     if (analyseDimSels.length) parts.push(`Dimension ${analyseDimSels.join(', ')}`)
     if (analyseDureteSel) parts.push(`Dureté ${analyseDureteSel}`)
     if (analyseRevSel) parts.push(`Revêtement ${analyseRevSel}`)
+    if (mouvDureteSels.length) parts.push(`Duretés ${mouvDureteSels.join(', ')}`)
+    if (mouvRevSels.length) parts.push(`Revêtements ${mouvRevSels.join(', ')}`)
     if (groupeAnalyse === 'mouvements' && (mouvDebut || mouvFin)) parts.push(`Période ${mouvDebut ? fmtDateAnalyse(mouvDebut) : 'origine'} → ${mouvFin ? fmtDateAnalyse(mouvFin) : 'aujourd\'hui'}`)
     return parts.join(' + ')
   }
@@ -1409,7 +1416,7 @@ export default function Home() {
           <label className="block text-sm font-medium mb-2">Analyser par :</label>
           <div className="flex flex-wrap gap-2">
             {([['diametre', '📏 Par produit'], ['lot', '📦 Par lot'], ['fournisseur', '🏭 Par fournisseur'], ['mouvements', '🔄 Par mouvements']] as const).map(([k, lbl]) => (
-              <button key={k} onClick={() => { setGroupeAnalyse(k); setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel('') }} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
+              <button key={k} onClick={() => { setGroupeAnalyse(k); setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel(''); setMouvDureteSels([]); setMouvRevSels([]) }} className={`px-4 py-2 rounded-md text-sm ${groupeAnalyse === k ? 'bg-teal-600 text-white' : 'bg-white border'}`}>{lbl}</button>
             ))}
           </div>
           {groupeAnalyse === 'mouvements' && (
@@ -1427,6 +1434,38 @@ export default function Home() {
             </div>
           )}
           <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            {groupeAnalyse === 'mouvements' && (<>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Dureté (plusieurs possibles)</label>
+                <details className="relative">
+                  <summary className="w-full px-3 py-2 border rounded-md text-sm bg-white cursor-pointer list-none">{mouvDureteSels.length === 0 ? 'Toutes les duretés' : `${mouvDureteSels.length} dureté(s) : ${mouvDureteSels.join(', ')}`}</summary>
+                  <div className="absolute z-10 mt-1 w-full max-h-72 overflow-y-auto bg-white border rounded-md shadow-lg p-2">
+                    <button type="button" onClick={() => setMouvDureteSels([])} className="w-full text-left text-xs text-teal-700 px-2 py-1 hover:bg-teal-50 rounded">Toutes les duretés</button>
+                    {analyseOptions.duretes.map(d => (
+                      <label key={d} className="flex items-center gap-2 px-2 py-1 text-sm hover:bg-gray-50 rounded cursor-pointer">
+                        <input type="checkbox" checked={mouvDureteSels.includes(d)} onChange={() => setMouvDureteSels(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])} />
+                        <span className={classeDurete(d)}>{d}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Revêtement (plusieurs possibles)</label>
+                <details className="relative">
+                  <summary className="w-full px-3 py-2 border rounded-md text-sm bg-white cursor-pointer list-none">{mouvRevSels.length === 0 ? 'Tous les revêtements' : `${mouvRevSels.length} revêtement(s) : ${mouvRevSels.join(', ')}`}</summary>
+                  <div className="absolute z-10 mt-1 w-full max-h-72 overflow-y-auto bg-white border rounded-md shadow-lg p-2">
+                    <button type="button" onClick={() => setMouvRevSels([])} className="w-full text-left text-xs text-teal-700 px-2 py-1 hover:bg-teal-50 rounded">Tous les revêtements</button>
+                    {analyseOptions.revetements.map(r => (
+                      <label key={r} className="flex items-center gap-2 px-2 py-1 text-sm hover:bg-gray-50 rounded cursor-pointer">
+                        <input type="checkbox" checked={mouvRevSels.includes(r)} onChange={() => setMouvRevSels(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])} />
+                        <span style={couleurRevItem(r)}>{r}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            </>)}
             {groupeAnalyse === 'lot' && (
               <div>
                 <label className="block text-xs text-gray-600 mb-1">Sélectionner un lot</label>
@@ -1489,8 +1528,8 @@ export default function Home() {
             <button onClick={() => setAnalyseModeDetail(false)} className={`px-4 py-2 rounded-md text-sm ${!analyseModeDetail ? 'bg-teal-600 text-white' : 'bg-white border'}`}>📋 Mode résumé</button>
             <button onClick={() => setAnalyseModeDetail(true)} className={`px-4 py-2 rounded-md text-sm ${analyseModeDetail ? 'bg-teal-600 text-white' : 'bg-white border'}`}>🔎 Mode détail</button>
           </div>
-          {(analyseLotSel || analyseFournSel || analyseDimSels.length > 0 || analyseDureteSel || analyseRevSel || rechercheCmdFab || mouvPreset !== 'tout') && (
-            <button onClick={() => { setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel(''); setRechercheCmdFab(''); setMouvPreset('tout'); setMouvDebut(''); setMouvFin('') }} className="mt-3 bg-white border border-teal-300 text-teal-700 px-3 py-1 rounded-md text-xs">✕ Réinitialiser les filtres</button>
+          {(analyseLotSel || analyseFournSel || analyseDimSels.length > 0 || analyseDureteSel || analyseRevSel || rechercheCmdFab || mouvPreset !== 'tout' || mouvDureteSels.length > 0 || mouvRevSels.length > 0) && (
+            <button onClick={() => { setAnalyseLotSel(''); setAnalyseFournSel(''); setAnalyseDimSels([]); setAnalyseDureteSel(''); setAnalyseRevSel(''); setRechercheCmdFab(''); setMouvPreset('tout'); setMouvDebut(''); setMouvFin(''); setMouvDureteSels([]); setMouvRevSels([]) }} className="mt-3 bg-white border border-teal-300 text-teal-700 px-3 py-1 rounded-md text-xs">✕ Réinitialiser les filtres</button>
           )}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
