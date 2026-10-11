@@ -58,7 +58,7 @@ type ReceptionData = {
 }
 type AutreSection = 'actions' | 'items' | 'lots' | 'users' | 'history' | 'export' | 'backup' | 'reset'
 
-const APP_VERSION = 'V1.29'
+const APP_VERSION = 'V1.30'
 
 // Libellés affichables des types de pointage
 const LABELS_TYPE_MOUVEMENT: Record<string, string> = {
@@ -151,6 +151,30 @@ const LIBELLES_LIEU: Record<string, string> = { STOCK_PRINCIPAL: 'Stock', USINE:
 
 const dimensionReception = (r: BobineAnalyse['reception']) =>
   r.type_materiel === 'Fil' ? `Ø${r.diametre_fil ?? '?'}` : `${r.largeur_feuillard ?? '?'}x${r.longueur_feuillard ?? '?'}`
+
+// Poids consommé par le client à chaque retour usine : différence entre le poids
+// de la bobine au départ vers l'usine et le poids revenu. Renvoie id du mouvement
+// de retour -> poids consommé (lecture seule, aucun impact sur les données).
+function consommationsRetour(mvts: MvtAnalyse[], poidsInitial: number): Map<number, number> {
+  const res = new Map<number, number>()
+  let poidsCourant = poidsInitial
+  let poidsDepartUsine: number | null = null
+  for (const m of mvts) {
+    const p = parseFloat(m.poids_mouvement)
+    if (m.type_mouvement === 'SORTIE_USINE' || m.type_mouvement === 'TRANSFERT_VERS_USINE') {
+      poidsDepartUsine = poidsCourant
+    } else if (m.type_mouvement === 'RETOUR_USINE') {
+      if (poidsDepartUsine !== null) res.set(m.id, Math.max(0, poidsDepartUsine - p))
+      poidsCourant = p
+      poidsDepartUsine = null
+    } else if (m.type_mouvement === 'ENTREE_FOURNISSEUR') {
+      poidsCourant = p
+    } else if (m.type_mouvement === 'SORTIE_DECHET' || m.type_mouvement === 'TRANSFERT_VERS_DECHET') {
+      poidsCourant = 0
+    }
+  }
+  return res
+}
 
 // Export CSV direct depuis le navigateur (sans appel serveur)
 function telechargerCSV(nomFichier: string, lignes: string[][]) {
@@ -1261,8 +1285,11 @@ export default function Home() {
                           <table className="w-full text-xs">
                             <thead><tr className="text-gray-600"><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1 pr-3">Pointage</th><th className="text-right py-1 pr-3">Poids (kg)</th><th className="text-left py-1 pr-3">Lieu</th><th className="text-left py-1 pr-3">Client</th><th className="text-left py-1">Note</th></tr></thead>
                             <tbody>
-                              {l.mvts.map(m => (
-                                <tr key={m.id} className="border-t border-blue-100">
+                              {(() => {
+                                const conso = consommationsRetour(l.mvts, l.poidsInitial)
+                                return l.mvts.map(m => (
+                                <Fragment key={m.id}>
+                                <tr className="border-t border-blue-100">
                                   <td className="py-1 pr-3 whitespace-nowrap">{new Date(m.date_mouvement).toLocaleString('fr-FR')}</td>
                                   <td className="py-1 pr-3">{LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement}</td>
                                   <td className="py-1 pr-3 text-right font-semibold">{parseFloat(m.poids_mouvement).toFixed(2)}</td>
@@ -1270,7 +1297,21 @@ export default function Home() {
                                   <td className="py-1 pr-3">{m.client || '-'}</td>
                                   <td className="py-1">{m.texte_libre || ''}</td>
                                 </tr>
-                              ))}
+                                {m.type_mouvement === 'RETOUR_USINE' && conso.has(m.id) && (
+                                  <tr className="bg-orange-50 border-t border-orange-100 text-orange-800">
+                                    <td className="py-1 pr-3"></td>
+                                    <td className="py-1 pr-3 pl-4 font-semibold">↳ Poids consommé par le client</td>
+                                    <td className="py-1 pr-3 text-right font-bold">{conso.get(m.id)!.toFixed(2)} kg</td>
+                                    <td className="py-1 pr-3" colSpan={3}>
+                                      {m.client || m.n_commande_client
+                                        ? `${m.client || '-'}${m.n_commande_client ? ` · Cmd ${m.n_commande_client}` : ''}`
+                                        : l.numCmdFab ? `Cmd fab ${l.numCmdFab}` : 'Consommation usine'}
+                                    </td>
+                                  </tr>
+                                )}
+                                </Fragment>
+                                ))
+                              })()}
                             </tbody>
                           </table>
                         </td></tr>
@@ -1335,8 +1376,11 @@ export default function Home() {
                               <table className="w-full text-xs">
                                 <thead><tr className="text-gray-600"><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1 pr-3">Pointage</th><th className="text-right py-1 pr-3">Poids (kg)</th><th className="text-left py-1 pr-3">Lieu</th><th className="text-left py-1 pr-3">Client</th><th className="text-left py-1">Note</th></tr></thead>
                                 <tbody>
-                                  {l.mvts.map(m => (
-                                    <tr key={m.id} className="border-t border-blue-100">
+                                  {(() => {
+                                    const conso = consommationsRetour(l.mvts, l.poidsInitial)
+                                    return l.mvts.map(m => (
+                                    <Fragment key={m.id}>
+                                    <tr className="border-t border-blue-100">
                                       <td className="py-1 pr-3 whitespace-nowrap">{new Date(m.date_mouvement).toLocaleString('fr-FR')}</td>
                                       <td className="py-1 pr-3">{LABELS_TYPE_MOUVEMENT[m.type_mouvement] || m.type_mouvement}</td>
                                       <td className="py-1 pr-3 text-right font-semibold">{parseFloat(m.poids_mouvement).toFixed(2)}</td>
@@ -1344,7 +1388,21 @@ export default function Home() {
                                       <td className="py-1 pr-3">{m.client || '-'}</td>
                                       <td className="py-1">{m.texte_libre || ''}</td>
                                     </tr>
-                                  ))}
+                                    {m.type_mouvement === 'RETOUR_USINE' && conso.has(m.id) && (
+                                      <tr className="bg-orange-50 border-t border-orange-100 text-orange-800">
+                                        <td className="py-1 pr-3"></td>
+                                        <td className="py-1 pr-3 pl-4 font-semibold">↳ Poids consommé par le client</td>
+                                        <td className="py-1 pr-3 text-right font-bold">{conso.get(m.id)!.toFixed(2)} kg</td>
+                                        <td className="py-1 pr-3" colSpan={3}>
+                                          {m.client || m.n_commande_client
+                                            ? `${m.client || '-'}${m.n_commande_client ? ` · Cmd ${m.n_commande_client}` : ''}`
+                                            : l.numCmdFab ? `Cmd fab ${l.numCmdFab}` : 'Consommation usine'}
+                                        </td>
+                                      </tr>
+                                    )}
+                                    </Fragment>
+                                    ))
+                                  })()}
                                 </tbody>
                               </table>
                             </td></tr>
