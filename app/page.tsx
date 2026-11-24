@@ -82,7 +82,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.49'
+const APP_VERSION = 'V1.50'
 
 // Nombre maximum de bobines par lot (même limite que l'API /api/receptions)
 const MAX_BOBINES_PAR_LOT = 250
