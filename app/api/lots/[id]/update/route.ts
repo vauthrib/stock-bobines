@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { refusEcritureAutreSite } from '@/lib/site-base'
 
+// Nombre maximum de bobines acceptées dans un lot
+const MAX_BOBINES_PAR_LOT = 250
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -22,6 +25,12 @@ export async function PUT(
 
     if (!existing) {
       return NextResponse.json({ error: 'Lot introuvable' }, { status: 404 })
+    }
+
+    // Un lot doit garder entre 1 et 250 bobines
+    const bobines = Array.isArray(data.bobines) ? data.bobines : []
+    if (bobines.length < 1 || bobines.length > MAX_BOBINES_PAR_LOT) {
+      return NextResponse.json({ error: `Un lot doit contenir entre 1 et ${MAX_BOBINES_PAR_LOT} bobines` }, { status: 400 })
     }
 
     // Vérifier l'unicité si on change les codes
@@ -112,7 +121,7 @@ export async function PUT(
           })
         }
       }
-    })
+    }, { timeout: 30000 })
 
     return NextResponse.json({ message: 'Lot mis à jour avec succès' })
   } catch (error) {

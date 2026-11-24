@@ -2,15 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { refusEcritureAutreSite } from '@/lib/site-base'
 
+// Nombre maximum de bobines acceptées dans un lot (arrivage et modification)
+const MAX_BOBINES_PAR_LOT = 250
+
 export async function POST(request: NextRequest) {
   try {
     const refus = await refusEcritureAutreSite()
     if (refus) return refus
 
     const data = await request.json()
-    
-    if (data.nombre_bobines > 99) {
-      return NextResponse.json({ error: 'Maximum 99 bobines par lot' }, { status: 400 })
+    const nb = Number(data.nombre_bobines)
+
+    if (!Number.isInteger(nb) || nb < 1) {
+      return NextResponse.json({ error: `Nombre de bobines invalide (1 à ${MAX_BOBINES_PAR_LOT})` }, { status: 400 })
+    }
+
+    if (nb > MAX_BOBINES_PAR_LOT) {
+      return NextResponse.json({ error: `Maximum ${MAX_BOBINES_PAR_LOT} bobines par lot` }, { status: 400 })
     }
 
     const existing = await prisma.reception.findUnique({
@@ -27,57 +35,63 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ce lot existe déjà' }, { status: 400 })
     }
 
-    const reception = await prisma.reception.create({
-      data: {
-        code_fournisseur: data.code_fournisseur.toUpperCase(),
-        num_commande: data.num_commande.padStart(2, '0'),
-        num_type_produit: data.num_type_produit.padStart(2, '0'),
-        type_materiel: data.type_materiel,
-        diametre_fil: data.diametre_fil ? parseFloat(data.diametre_fil) : null,
-        longueur_feuillard: data.longueur_feuillard ? parseFloat(data.longueur_feuillard) : null,
-        largeur_feuillard: data.largeur_feuillard ? parseFloat(data.largeur_feuillard) : null,
-        matiere: data.matiere,
-        durete: data.durete,
-        revetement: data.revetement,
-        date_reception: new Date(data.date_reception)
-      }
-    })
-
-    // Créer les bobines avec leurs poids individuels
-    const bobines = []
+    // Création en bloc : 1 insertion pour le lot, 1 pour les bobines, 1 pour les mouvements.
+    // (250 bobines créées une par une feraient 500 allers-retours vers la base)
     const poidsParBobine = data.poids_bobines || []
-    
-    for (let i = 0; i < data.nombre_bobines; i++) {
-      const numBobine = (i + 1).toString().padStart(2, '0')
-      const codeBobine = `${reception.code_fournisseur}${reception.num_commande}${reception.num_type_produit}-${numBobine}`
-      const poids = parseFloat(poidsParBobine[i]) || 0
-      
-      const bobine = await prisma.bobine.create({
+
+    const { reception, bobines } = await prisma.$transaction(async (tx) => {
+      const reception = await tx.reception.create({
         data: {
-          reception_id: reception.id,
-          code_bobine: codeBobine,
-          num_bobine: i + 1,
-          poids_initial: poids,
-          poids_actuel: poids,
-          statut: poids > 0 ? 'EN_STOCK' : 'EN_STOCK'
+          code_fournisseur: data.code_fournisseur.toUpperCase(),
+          num_commande: data.num_commande.padStart(2, '0'),
+          num_type_produit: data.num_type_produit.padStart(2, '0'),
+          type_materiel: data.type_materiel,
+          diametre_fil: data.diametre_fil ? parseFloat(data.diametre_fil) : null,
+          longueur_feuillard: data.longueur_feuillard ? parseFloat(data.longueur_feuillard) : null,
+          largeur_feuillard: data.largeur_feuillard ? parseFloat(data.largeur_feuillard) : null,
+          matiere: data.matiere,
+          durete: data.durete,
+          revetement: data.revetement,
+          date_reception: new Date(data.date_reception)
         }
       })
-      
-      // Enregistrer le mouvement d'entrée
-      await prisma.mouvement.create({
-        data: {
-          bobine_id: bobine.id,
-          type_mouvement: 'ENTREE_FOURNISSEUR',
-          poids_mouvement: poids,
+
+      // Bobines avec leurs poids individuels
+      await tx.bobine.createMany({
+        data: Array.from({ length: nb }, (_, i) => {
+          const poids = parseFloat(poidsParBobine[i]) || 0
+          const numBobine = (i + 1).toString().padStart(2, '0')
+          return {
+            reception_id: reception.id,
+            code_bobine: `${reception.code_fournisseur}${reception.num_commande}${reception.num_type_produit}-${numBobine}`,
+            num_bobine: i + 1,
+            poids_initial: poids,
+            poids_actuel: poids,
+            statut: 'EN_STOCK' as const
+          }
+        })
+      })
+
+      const bobines = await tx.bobine.findMany({
+        where: { reception_id: reception.id },
+        orderBy: { num_bobine: 'asc' }
+      })
+
+      // Enregistrer le mouvement d'entrée de chaque bobine
+      await tx.mouvement.createMany({
+        data: bobines.map(b => ({
+          bobine_id: b.id,
+          type_mouvement: 'ENTREE_FOURNISSEUR' as const,
+          poids_mouvement: b.poids_initial,
           utilisateur: data.utilisateur || null
-        }
+        }))
       })
-      
-      bobines.push(bobine)
-    }
+
+      return { reception, bobines }
+    }, { timeout: 30000 })
 
     return NextResponse.json({ 
-      message: `Réception créée avec ${data.nombre_bobines} bobines`,
+      message: `Réception créée avec ${nb} bobines`,
       reception,
       bobines
     })
