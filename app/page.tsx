@@ -82,7 +82,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.55'
+const APP_VERSION = 'V1.56'
 
 // Nombre maximum de bobines par lot (même limite que l'API /api/receptions)
 const MAX_BOBINES_PAR_LOT = 250
@@ -1603,7 +1603,7 @@ export default function Home() {
                 <p className="text-xs text-gray-600 mt-0.5">{analyseModeDetail ? 'Cliquer sur une ligne pour déplier ou replier son historique complet.' : 'Activer le mode détail pour voir chaque bobine.'}</p>
               </div>
               {analyseModeDetail ? (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
-                <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Lot</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Cmd fab</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids actuel en stock</th></tr></thead>
+                <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Lot</th><th className="px-3 py-2 text-left">Dim</th><th className="px-3 py-2 text-left">Cmd fab</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids stock</th></tr></thead>
                 <tbody>
                   {resultatsCmdFab.map(l => (
                     <Fragment key={l.id}>
@@ -1678,12 +1678,8 @@ export default function Home() {
         ) : analyseGroupes.length === 0 ? <p className="text-center py-8 text-gray-500">Aucune donnée pour cette sélection</p> : (
           <div className="space-y-6">
             {analyseGroupes.map(g => {
-              const pInit = g.bobines.reduce((s, l) => s + l.poidsInitial, 0)
               const pStock = g.bobines.filter(l => l.lieu === 'STOCK_PRINCIPAL').reduce((s, l) => s + l.poidsActuel, 0)
-              const pUsine = g.bobines.filter(l => l.lieu === 'USINE').reduce((s, l) => s + l.poidsActuel, 0)
               const pTransfere = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poidsNet || 0), 0)
-              const pSorties = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poids || 0), 0)
-              const pRetours = g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.poidsRetours || 0), 0)
               const nSorties = groupeAnalyse === 'mouvements'
                 ? g.bobines.reduce((s, l) => s + (analyseTransfers.get(l.id)?.transferts.length || 0), 0)
                 : g.bobines.reduce((s, l) => s + l.sortiesUsine.length, 0)
@@ -1694,11 +1690,10 @@ export default function Home() {
               return (
                 <div key={g.key} className="border rounded-md overflow-hidden">
                   <div className="bg-gray-100 px-4 py-2">
-                    <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : (groupeAnalyse === 'diametre' && i === 0 ? <span className="text-lg sm:text-xl">{p.t}</span> : p.t)}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{groupeAnalyse === 'diametre' && g.label ? <span className="text-lg sm:text-xl">{g.label}</span> : g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : p.t}</Fragment>)) : g.sousTitre}</span></p>
-                    <p className="text-xs text-gray-600 mt-0.5">{groupeAnalyse === 'mouvements' && (<><span className="font-bold text-orange-700 text-lg sm:text-xl">net stock → usine : {pTransfere.toFixed(2)} kg</span>{' · '}</>)}<span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg{groupeAnalyse === 'mouvements' && <> · sorties {pSorties.toFixed(2)} kg − retours {pRetours.toFixed(2)} kg</>} · {nSorties} {groupeAnalyse === 'mouvements' ? 'transfert(s) stock→usine' : 'sortie(s) usine'} · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
+                    <p className="font-bold text-gray-800">{g.icone}{' '}{g.parties.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : (groupeAnalyse === 'diametre' && i === 0 ? <span className="text-lg sm:text-xl">{p.t}</span> : p.t)}</Fragment>))}{g.parties.length > 0 && g.label ? ' · ' : ''}{groupeAnalyse === 'diametre' && g.label ? <span className="text-lg sm:text-xl">{g.label}</span> : g.label}{' '}<span className="text-xs font-normal text-gray-600">{g.sousTitreParts.length > 0 ? <>{g.sousTitreParts.map((p, i) => (<Fragment key={i}>{i > 0 ? ' · ' : ''}{p.rev ? <span style={couleurRevItem(p.rev)}>{p.t}</span> : p.dur ? <span className={classeDurete(p.dur)}>{p.t}</span> : p.t}</Fragment>))}{' · '}</> : (groupeAnalyse === 'mouvements' || groupeAnalyse === 'fournisseur') ? <>{g.sousTitre}{' · '}</> : null}{g.bobines.length} bobine(s) en stock : <span className="font-bold text-green-800">{pStock.toFixed(2)} kg</span>{groupeAnalyse === 'mouvements' && <> · <span className="font-bold text-orange-700">net stock → usine : {pTransfere.toFixed(2)} kg</span></>} · {nSorties} {groupeAnalyse === 'mouvements' ? 'transfert(s) stock→usine' : 'sortie(s) usine'} · {nRetours} retour(s) · {nRebuts} rebut(s)</span></p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
-                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left whitespace-nowrap">Bobine</th><th className="px-3 py-2 text-left whitespace-nowrap">Dimension</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids init.</th><th className="px-3 py-2 text-left whitespace-nowrap">Arrivée</th><th className="px-3 py-2 text-left whitespace-nowrap">Cmd fab</th><th className="px-3 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-3 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Retours (période)' : 'Retours usine'}</th><th className="px-3 py-2 text-left whitespace-nowrap">Mise en déchet</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids actuel en stock</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
+                    <thead className="bg-gray-50"><tr><th className="px-2 py-2 text-left whitespace-nowrap" style={{ width: '9%' }}>Bobine</th><th className="px-2 py-2 text-left whitespace-nowrap" style={{ width: '7%' }}>Dim</th><th className="px-2 py-2 text-right whitespace-nowrap" style={{ width: '6%' }}>Poids init.</th><th className="px-2 py-2 text-left whitespace-nowrap" style={{ width: '8%' }}>Arrivée</th><th className="px-2 py-2 text-left whitespace-nowrap" style={{ width: '8%' }}>Cmd fab</th><th className="px-2 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-2 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Retours (période)' : 'Retours usine'}</th><th className="px-2 py-2 text-left whitespace-nowrap">Mise en déchet</th><th className="px-2 py-2 text-right whitespace-nowrap" style={{ width: '7%' }}>Poids stock</th><th className="sticky right-0 z-10 bg-gray-50 border-l border-gray-200 px-2 py-2 text-left whitespace-nowrap" style={{ width: '7%' }}>Lieu</th></tr></thead>
                     <tbody>
                       {g.bobines.map(l => (
                         <Fragment key={l.id}>
@@ -1717,7 +1712,7 @@ export default function Home() {
                             <td className="px-3 py-2 text-xs">{retoursAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : retoursAffiches(l).map(m => `${fmtDateAnalyse(m.date_mouvement)} (${parseFloat(m.poids_mouvement).toFixed(2)} kg)`).join(' · ')}</td>
                             <td className="px-3 py-2 text-xs text-red-700">{l.dechets.map(m => `🗑️ ${fmtDateAnalyse(m.date_mouvement)}`).join(' · ')}</td>
                             <td className="px-3 py-2 text-right font-semibold text-green-800">{affichagePoidsEnStock(l)}</td>
-                            <td className="px-3 py-2 text-xs">{LIBELLES_LIEU[l.lieu] || l.lieu}</td>
+                            <td className={`sticky right-0 z-10 border-l border-gray-200 px-2 py-2 text-xs ${bobineAnalyseDetail === l.id ? 'bg-teal-50' : 'bg-white'}`}>{LIBELLES_LIEU[l.lieu] || l.lieu}</td>
                           </tr>
                           {bobineAnalyseDetail === l.id && (
                             <tr><td colSpan={10} className="bg-blue-50 px-4 py-3">
