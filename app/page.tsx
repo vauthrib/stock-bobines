@@ -82,7 +82,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.54'
+const APP_VERSION = 'V1.55'
 
 // Nombre maximum de bobines par lot (même limite que l'API /api/receptions)
 const MAX_BOBINES_PAR_LOT = 250
@@ -927,6 +927,10 @@ export default function Home() {
   // Poids actuellement en stock : le poids de la bobine si elle est au stock principal,
   // 0 si elle est partie à l'usine (ou en déchet) — soit poids de départ − poids usine
   const poidsEnStock = (l: LigneAnalyse) => l.lieu === 'STOCK_PRINCIPAL' ? l.poidsActuel : 0
+  // Affichage : un tiret discret plutôt que 0.00 pour ne voir que les poids réellement en stock
+  const affichagePoidsEnStock = (l: LigneAnalyse) => poidsEnStock(l) === 0
+    ? <span className="text-gray-300">-</span>
+    : poidsEnStock(l).toFixed(2)
 
   // Duretés / revêtements proposés restreints à la dimension choisie (comme l'État du stock)
   const analyseDuretesDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => !analyseDimSels.length || analyseDimSels.includes(l.dimension)).map(l => l.durete))).sort(), [lignesAnalyse, analyseDimSels])
@@ -1163,7 +1167,7 @@ export default function Home() {
       <>
         <div className="etiquette-page min-h-screen p-2 sm:p-6"><div className="etiquette-sheet max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-3 sm:p-8">
           <div className="etiquette-toolbar flex flex-wrap justify-between items-center gap-2 mb-6"><h1 className="text-lg sm:text-2xl font-bold text-blue-900">🏷️ {bobinesToPrint.length} étiquette(s)</h1><div className="flex gap-2"><button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-md">🖨️ Imprimer</button><button onClick={() => { setShowEtiquette(false); setBobinesToPrint([]) }} className="text-red-600 px-4">✕</button></div></div>
-          <div id="etiquettes-grid">{bobinesToPrint.map((b, i) => { const r = b.reception; const dim = r.type_materiel === 'Fil' ? `Ø${r.diametre_fil}` : `${r.largeur_feuillard}x${r.longueur_feuillard}`; return (<div key={i} className="etiquette"><div className="etiquette-content"><div className="etiquette-left"><p className="etiquette-header">{r.code_fournisseur} Cmd {r.num_commande}</p><p className="etiquette-code">{b.code_bobine}</p><p className="etiquette-gros text-blue-800">{dim}</p><p className="etiquette-gros text-green-800">{b.poids_initial} kg</p><p className="etiquette-gros">{r.matiere}</p><p className={`etiquette-gros ${classeDurete(r.durete)}`}>{r.durete}</p><p className="etiquette-gros" style={couleurRevItem(r.revetement)}>{r.revetement}</p></div><div className="etiquette-right"><QRCodeSVG value={`${baseUrl}/bobine/${b.code_bobine}`} size={90} /></div></div></div>) })}</div>
+          <div id="etiquettes-grid">{bobinesToPrint.map((b, i) => { const r = b.reception; const dim = r.type_materiel === 'Fil' ? `Ø${r.diametre_fil}` : `${r.largeur_feuillard}x${r.longueur_feuillard}`; return (<div key={i} className="etiquette"><div className="etiquette-content"><div className="etiquette-left"><p className="etiquette-code">{b.code_bobine}</p><p className="etiquette-gros text-blue-800">{dim}</p><p className="etiquette-gros text-green-800">{b.poids_initial} kg</p><p className="etiquette-gros">{r.matiere}</p><p className={`etiquette-gros ${classeDurete(r.durete)}`}>{r.durete}</p><p className="etiquette-gros" style={couleurRevItem(r.revetement)}>{r.revetement}</p></div><div className="etiquette-right"><QRCodeSVG value={`${baseUrl}/bobine/${b.code_bobine}`} size={90} /></div></div></div>) })}</div>
         </div></div>
         <style jsx global>{`.etiquette-header{font-size:.7rem;font-weight:bold}.etiquette-code{font-size:.85rem;font-family:monospace;font-weight:bold}.etiquette-gros{font-size:1.4rem;font-weight:bold;line-height:1.05}@media print{html,body{margin:0!important;padding:0!important;background:#fff!important}.etiquette-page{min-height:0!important;padding:0!important;margin:0!important;background:none!important}.etiquette-sheet{max-width:none!important;margin:0!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:none!important}.etiquette-toolbar{display:none!important}#etiquettes-grid{display:block!important;width:210mm;padding:0;margin:0;font-size:0;line-height:0}.etiquette{display:inline-block;vertical-align:top;width:33.333%;height:74mm;padding:1mm;box-sizing:border-box;border:0;margin:0;overflow:hidden;page-break-inside:avoid;break-inside:avoid}.etiquette-content{border:1px solid #000;border-radius:1mm;box-sizing:border-box;display:flex;flex-direction:row;height:100%;width:100%;gap:1.5mm;align-items:center;justify-content:center;padding:1.5mm;line-height:normal}.etiquette-left{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;text-align:left;gap:.1mm}.etiquette-right{flex:0 0 auto;display:flex;align-items:center;justify-content:center}.etiquette-right svg{width:32mm!important;height:32mm!important}.etiquette-header{font-size:13pt;line-height:1.0;font-weight:bold;width:100%}.etiquette-code{font-size:15pt;line-height:1.0}.etiquette-gros{font-size:19pt;line-height:1.0;width:100%}@page{size:A4 portrait;margin:0}}@media screen{#etiquettes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.etiquette{border:2px solid #000;padding:8px;min-height:200px}.etiquette-content{display:flex;height:100%;gap:10px}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center}.etiquette-right{display:flex;align-items:center;justify-content:center}}`}</style>
       </>
@@ -1609,7 +1613,7 @@ export default function Home() {
                         <td className="px-3 py-2">{l.dimension}</td>
                         <td className="px-3 py-2 font-mono text-xs">{l.numCmdFab || '-'}</td>
                         <td className="px-3 py-2 text-right">{l.poidsInitial.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-green-800">{poidsEnStock(l).toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-green-800">{affichagePoidsEnStock(l)}</td>
                       </tr>
                       {bobineAnalyseDetail === l.id && (
                         <tr><td colSpan={6} className="bg-blue-50 px-4 py-3">
@@ -1694,7 +1698,7 @@ export default function Home() {
                     <p className="text-xs text-gray-600 mt-0.5">{groupeAnalyse === 'mouvements' && (<><span className="font-bold text-orange-700 text-lg sm:text-xl">net stock → usine : {pTransfere.toFixed(2)} kg</span>{' · '}</>)}<span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg{groupeAnalyse === 'mouvements' && <> · sorties {pSorties.toFixed(2)} kg − retours {pRetours.toFixed(2)} kg</>} · {nSorties} {groupeAnalyse === 'mouvements' ? 'transfert(s) stock→usine' : 'sortie(s) usine'} · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
-                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left whitespace-nowrap">Bobine</th><th className="px-3 py-2 text-left whitespace-nowrap">Dimension</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids init.</th><th className="px-3 py-2 text-left whitespace-nowrap">Arrivée</th><th className="px-3 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-3 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Retours (période)' : 'Retours usine'}</th><th className="px-3 py-2 text-left whitespace-nowrap">Mise en déchet</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids actuel en stock</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
+                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left whitespace-nowrap">Bobine</th><th className="px-3 py-2 text-left whitespace-nowrap">Dimension</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids init.</th><th className="px-3 py-2 text-left whitespace-nowrap">Arrivée</th><th className="px-3 py-2 text-left whitespace-nowrap">Cmd fab</th><th className="px-3 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-3 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Retours (période)' : 'Retours usine'}</th><th className="px-3 py-2 text-left whitespace-nowrap">Mise en déchet</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids actuel en stock</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
                     <tbody>
                       {g.bobines.map(l => (
                         <Fragment key={l.id}>
@@ -1703,6 +1707,7 @@ export default function Home() {
                             <td className="px-3 py-2">{l.dimension}</td>
                             <td className="px-3 py-2 text-right">{l.poidsInitial.toFixed(2)}</td>
                             <td className="px-3 py-2 whitespace-nowrap">{fmtDateAnalyse(l.arrivee)}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{l.numCmdFab || <span className="text-gray-400">-</span>}</td>
                             <td className="px-3 py-2 text-xs">{(() => {
                               const tr = transfertsAffiches(l)
                               if (tr.length === 0) return <span className="text-gray-400">-</span>
@@ -1711,11 +1716,11 @@ export default function Home() {
                             })()}</td>
                             <td className="px-3 py-2 text-xs">{retoursAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : retoursAffiches(l).map(m => `${fmtDateAnalyse(m.date_mouvement)} (${parseFloat(m.poids_mouvement).toFixed(2)} kg)`).join(' · ')}</td>
                             <td className="px-3 py-2 text-xs text-red-700">{l.dechets.map(m => `🗑️ ${fmtDateAnalyse(m.date_mouvement)}`).join(' · ')}</td>
-                            <td className="px-3 py-2 text-right font-semibold text-green-800">{poidsEnStock(l).toFixed(2)}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-green-800">{affichagePoidsEnStock(l)}</td>
                             <td className="px-3 py-2 text-xs">{LIBELLES_LIEU[l.lieu] || l.lieu}</td>
                           </tr>
                           {bobineAnalyseDetail === l.id && (
-                            <tr><td colSpan={9} className="bg-blue-50 px-4 py-3">
+                            <tr><td colSpan={10} className="bg-blue-50 px-4 py-3">
                               <p className="text-xs font-semibold mb-2">Historique complet — {l.code}{l.numCmdFab ? ` · Cmd fab : ${l.numCmdFab}` : ''}</p>
                               <table className="w-full text-xs">
                                 <thead><tr className="text-gray-600"><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1 pr-3">Pointage</th><th className="text-right py-1 pr-3">Poids (kg)</th><th className="text-left py-1 pr-3">Lieu</th><th className="text-left py-1 pr-3">Client</th><th className="text-left py-1">Note</th></tr></thead>
