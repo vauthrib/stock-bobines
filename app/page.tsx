@@ -82,7 +82,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.53'
+const APP_VERSION = 'V1.54'
 
 // Nombre maximum de bobines par lot (même limite que l'API /api/receptions)
 const MAX_BOBINES_PAR_LOT = 250
@@ -924,6 +924,10 @@ export default function Home() {
     : l.sortiesUsine.map(m => ({ mvt: m, poids: poidsMouvements([m]) }))
   const retoursAffiches = (l: LigneAnalyse) => groupeAnalyse === 'mouvements' ? (analyseTransfers.get(l.id)?.retours ?? []) : l.retoursUsine
 
+  // Poids actuellement en stock : le poids de la bobine si elle est au stock principal,
+  // 0 si elle est partie à l'usine (ou en déchet) — soit poids de départ − poids usine
+  const poidsEnStock = (l: LigneAnalyse) => l.lieu === 'STOCK_PRINCIPAL' ? l.poidsActuel : 0
+
   // Duretés / revêtements proposés restreints à la dimension choisie (comme l'État du stock)
   const analyseDuretesDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => !analyseDimSels.length || analyseDimSels.includes(l.dimension)).map(l => l.durete))).sort(), [lignesAnalyse, analyseDimSels])
   const analyseRevsDispo = useMemo(() => Array.from(new Set(lignesAnalyse.filter(l => (!analyseDimSels.length || analyseDimSels.includes(l.dimension)) && (!analyseDureteSel || l.durete === analyseDureteSel)).map(l => l.revetement))).sort(), [lignesAnalyse, analyseDimSels, analyseDureteSel])
@@ -1595,7 +1599,7 @@ export default function Home() {
                 <p className="text-xs text-gray-600 mt-0.5">{analyseModeDetail ? 'Cliquer sur une ligne pour déplier ou replier son historique complet.' : 'Activer le mode détail pour voir chaque bobine.'}</p>
               </div>
               {analyseModeDetail ? (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
-                <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Lot</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Cmd fab</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th></tr></thead>
+                <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Lot</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-left">Cmd fab</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids actuel en stock</th></tr></thead>
                 <tbody>
                   {resultatsCmdFab.map(l => (
                     <Fragment key={l.id}>
@@ -1605,11 +1609,10 @@ export default function Home() {
                         <td className="px-3 py-2">{l.dimension}</td>
                         <td className="px-3 py-2 font-mono text-xs">{l.numCmdFab || '-'}</td>
                         <td className="px-3 py-2 text-right">{l.poidsInitial.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-green-800">{l.poidsActuel.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-xs">{LIBELLES_STATUT[l.statut] || l.statut}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-green-800">{poidsEnStock(l).toFixed(2)}</td>
                       </tr>
                       {bobineAnalyseDetail === l.id && (
-                        <tr><td colSpan={7} className="bg-blue-50 px-4 py-3">
+                        <tr><td colSpan={6} className="bg-blue-50 px-4 py-3">
                           <p className="text-xs font-semibold mb-2">Historique complet — {l.code}{l.numCmdFab ? ` · Cmd fab : ${l.numCmdFab}` : ''} · Lot {l.lot}</p>
                           <table className="w-full text-xs">
                             <thead><tr className="text-gray-600"><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1 pr-3">Pointage</th><th className="text-right py-1 pr-3">Poids (kg)</th><th className="text-left py-1 pr-3">Lieu</th><th className="text-left py-1 pr-3">Client</th><th className="text-left py-1">Note</th></tr></thead>
@@ -1691,24 +1694,28 @@ export default function Home() {
                     <p className="text-xs text-gray-600 mt-0.5">{groupeAnalyse === 'mouvements' && (<><span className="font-bold text-orange-700 text-lg sm:text-xl">net stock → usine : {pTransfere.toFixed(2)} kg</span>{' · '}</>)}<span className={`font-bold text-green-800 ${groupeAnalyse === 'diametre' ? 'text-lg sm:text-xl' : ''}`}>en stock : {pStock.toFixed(2)} kg</span>{' · '}{g.bobines.length} bobine(s) · {pInit.toFixed(2)} kg initiaux · en usine {pUsine.toFixed(2)} kg{groupeAnalyse === 'mouvements' && <> · sorties {pSorties.toFixed(2)} kg − retours {pRetours.toFixed(2)} kg</>} · {nSorties} {groupeAnalyse === 'mouvements' ? 'transfert(s) stock→usine' : 'sortie(s) usine'} · {nRetours} retour(s) · {nRebuts} rebut(s)</p>
                   </div>
                   {analyseModeDetail && (<div className="overflow-x-auto"><table className="w-full text-xs sm:text-sm">
-                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">Bobine</th><th className="px-3 py-2 text-left">Dimension</th><th className="px-3 py-2 text-right">Poids init.</th><th className="px-3 py-2 text-left">Arrivée</th><th className="px-3 py-2 text-left">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-3 py-2 text-left">{groupeAnalyse === 'mouvements' ? 'Retours (période)' : 'Retours usine'}</th><th className="px-3 py-2 text-left">Mise en déchet</th><th className="px-3 py-2 text-right">Poids actuel</th><th className="px-3 py-2 text-left">Statut</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
+                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left whitespace-nowrap">Bobine</th><th className="px-3 py-2 text-left whitespace-nowrap">Dimension</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids init.</th><th className="px-3 py-2 text-left whitespace-nowrap">Arrivée</th><th className="px-3 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Transferts (période)' : 'Sorties usine'}</th><th className="px-3 py-2 text-left whitespace-nowrap">{groupeAnalyse === 'mouvements' ? 'Retours (période)' : 'Retours usine'}</th><th className="px-3 py-2 text-left whitespace-nowrap">Mise en déchet</th><th className="px-3 py-2 text-right whitespace-nowrap">Poids actuel en stock</th><th className="px-3 py-2 text-left">Lieu</th></tr></thead>
                     <tbody>
                       {g.bobines.map(l => (
                         <Fragment key={l.id}>
-                          <tr onClick={() => setBobineAnalyseDetail(bobineAnalyseDetail === l.id ? null : l.id)} className={`border-b cursor-pointer ${bobineAnalyseDetail === l.id ? 'bg-teal-50' : 'hover:bg-gray-50'}`}>
+                          <tr onClick={() => setBobineAnalyseDetail(bobineAnalyseDetail === l.id ? null : l.id)} className={`border-b cursor-pointer whitespace-nowrap ${bobineAnalyseDetail === l.id ? 'bg-teal-50' : 'hover:bg-gray-50'}`}>
                             <td className="px-3 py-2 font-mono font-semibold">{bobineAnalyseDetail === l.id ? '▾' : '▸'} {l.code}</td>
                             <td className="px-3 py-2">{l.dimension}</td>
                             <td className="px-3 py-2 text-right">{l.poidsInitial.toFixed(2)}</td>
                             <td className="px-3 py-2 whitespace-nowrap">{fmtDateAnalyse(l.arrivee)}</td>
-                            <td className="px-3 py-2 text-xs">{transfertsAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : <>{transfertsAffiches(l).map((t, i) => <div key={i}>{fmtDateAnalyse(t.mvt.date_mouvement)}{groupeAnalyse === 'mouvements' ? ` (${t.poids.toFixed(2)} kg)` : ''}</div>)}{groupeAnalyse === 'mouvements' && <div className="font-semibold text-orange-700">net : {(analyseTransfers.get(l.id)?.poidsNet ?? 0).toFixed(2)} kg</div>}</>}</td>
-                            <td className="px-3 py-2 text-xs">{retoursAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : retoursAffiches(l).map((m, i) => <div key={i}>{fmtDateAnalyse(m.date_mouvement)} ({parseFloat(m.poids_mouvement).toFixed(2)} kg)</div>)}</td>
-                            <td className="px-3 py-2 text-xs text-red-700">{l.dechets.map((m, i) => <div key={i}>🗑️ {fmtDateAnalyse(m.date_mouvement)}</div>)}</td>
-                            <td className="px-3 py-2 text-right font-semibold text-green-800">{l.poidsActuel.toFixed(2)}</td>
-                            <td className="px-3 py-2 text-xs">{LIBELLES_STATUT[l.statut] || l.statut}</td>
+                            <td className="px-3 py-2 text-xs">{(() => {
+                              const tr = transfertsAffiches(l)
+                              if (tr.length === 0) return <span className="text-gray-400">-</span>
+                              const txt = tr.map(t => `${fmtDateAnalyse(t.mvt.date_mouvement)}${groupeAnalyse === 'mouvements' ? ` (${t.poids.toFixed(2)} kg)` : ''}`).join(' · ')
+                              return <>{txt}{groupeAnalyse === 'mouvements' && <span className="font-semibold text-orange-700">{` · net : ${(analyseTransfers.get(l.id)?.poidsNet ?? 0).toFixed(2)} kg`}</span>}</>
+                            })()}</td>
+                            <td className="px-3 py-2 text-xs">{retoursAffiches(l).length === 0 ? <span className="text-gray-400">-</span> : retoursAffiches(l).map(m => `${fmtDateAnalyse(m.date_mouvement)} (${parseFloat(m.poids_mouvement).toFixed(2)} kg)`).join(' · ')}</td>
+                            <td className="px-3 py-2 text-xs text-red-700">{l.dechets.map(m => `🗑️ ${fmtDateAnalyse(m.date_mouvement)}`).join(' · ')}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-green-800">{poidsEnStock(l).toFixed(2)}</td>
                             <td className="px-3 py-2 text-xs">{LIBELLES_LIEU[l.lieu] || l.lieu}</td>
                           </tr>
                           {bobineAnalyseDetail === l.id && (
-                            <tr><td colSpan={10} className="bg-blue-50 px-4 py-3">
+                            <tr><td colSpan={9} className="bg-blue-50 px-4 py-3">
                               <p className="text-xs font-semibold mb-2">Historique complet — {l.code}{l.numCmdFab ? ` · Cmd fab : ${l.numCmdFab}` : ''}</p>
                               <table className="w-full text-xs">
                                 <thead><tr className="text-gray-600"><th className="text-left py-1 pr-3">Date</th><th className="text-left py-1 pr-3">Pointage</th><th className="text-right py-1 pr-3">Poids (kg)</th><th className="text-left py-1 pr-3">Lieu</th><th className="text-left py-1 pr-3">Client</th><th className="text-left py-1">Note</th></tr></thead>
