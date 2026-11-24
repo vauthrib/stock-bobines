@@ -82,7 +82,7 @@ type Operation = {
   revetement: string
 }
 
-const APP_VERSION = 'V1.50'
+const APP_VERSION = 'V1.51'
 
 // Nombre maximum de bobines par lot (même limite que l'API /api/receptions)
 const MAX_BOBINES_PAR_LOT = 250
@@ -696,6 +696,12 @@ export default function Home() {
     const lot = lotsDisponibles[k]; setBobinesToPrint(bobines.filter(b => b.reception.code_fournisseur === lot.code_fournisseur && b.reception.num_commande === lot.num_commande && b.reception.num_type_produit === lot.num_type_produit)); setShowEtiquette(true)
   }
 
+  const imprimerEtiquettesLot = (l: any) => {
+    const lot = bobines.filter(b => b.reception.code_fournisseur === l.code_fournisseur && b.reception.num_commande === l.num_commande && b.reception.num_type_produit === l.num_type_produit)
+    if (!lot.length) return alert('❌ Aucune bobine chargée pour ce lot : rechargez la page')
+    setBobinesToPrint(lot); setShowEtiquette(true)
+  }
+
   const handleEditLot = async (lotId: number) => {
     try {
       const res = await fetch(`/api/lots/${lotId}`)
@@ -1151,11 +1157,11 @@ export default function Home() {
     const baseUrl = getBaseUrl()
     return (
       <>
-        <div className="min-h-screen p-2 sm:p-6"><div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-3 sm:p-8">
-          <div className="flex flex-wrap justify-between items-center gap-2 mb-6"><h1 className="text-lg sm:text-2xl font-bold text-blue-900">🏷️ {bobinesToPrint.length} étiquette(s)</h1><div className="flex gap-2"><button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-md">🖨️ Imprimer</button><button onClick={() => { setShowEtiquette(false); setBobinesToPrint([]) }} className="text-red-600 px-4">✕</button></div></div>
+        <div className="etiquette-page min-h-screen p-2 sm:p-6"><div className="etiquette-sheet max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-3 sm:p-8">
+          <div className="etiquette-toolbar flex flex-wrap justify-between items-center gap-2 mb-6"><h1 className="text-lg sm:text-2xl font-bold text-blue-900">🏷️ {bobinesToPrint.length} étiquette(s)</h1><div className="flex gap-2"><button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-md">🖨️ Imprimer</button><button onClick={() => { setShowEtiquette(false); setBobinesToPrint([]) }} className="text-red-600 px-4">✕</button></div></div>
           <div id="etiquettes-grid">{bobinesToPrint.map((b, i) => { const r = b.reception; const dim = r.type_materiel === 'Fil' ? `Ø${r.diametre_fil}` : `${r.largeur_feuillard}x${r.longueur_feuillard}`; return (<div key={i} className="etiquette"><div className="etiquette-content"><div className="etiquette-left"><p className="etiquette-header">{r.code_fournisseur} Cmd {r.num_commande}</p><p className="etiquette-code">{b.code_bobine}</p><p className="etiquette-gros text-blue-800">{dim}</p><p className="etiquette-gros text-green-800">{b.poids_initial} kg</p><p className="etiquette-gros">{r.matiere}</p><p className={`etiquette-gros ${classeDurete(r.durete)}`}>{r.durete}</p><p className="etiquette-gros" style={couleurRevItem(r.revetement)}>{r.revetement}</p></div><div className="etiquette-right"><QRCodeSVG value={`${baseUrl}/bobine/${b.code_bobine}`} size={90} /></div></div></div>) })}</div>
         </div></div>
-        <style jsx global>{`.etiquette-header{font-size:.7rem;font-weight:bold}.etiquette-code{font-size:.85rem;font-family:monospace;font-weight:bold}.etiquette-gros{font-size:1.4rem;font-weight:bold;line-height:1.05}@media print{body *{visibility:hidden}#etiquettes-grid,#etiquettes-grid *{visibility:visible}#etiquettes-grid{position:absolute;left:0;top:0;width:210mm;display:block;padding:0}.etiquette{width:210mm;height:296mm;padding:12mm;box-sizing:border-box;page-break-inside:avoid;page-break-after:always}.etiquette:last-child{page-break-after:auto}.etiquette-content{border:1px solid #000;border-radius:2mm;box-sizing:border-box;display:flex;flex-direction:column;height:100%;width:100%;gap:8mm;align-items:center;justify-content:center;padding:8mm}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;width:100%}.etiquette-right{display:flex;align-items:center;justify-content:center}.etiquette-right svg{width:60mm!important;height:60mm!important}.etiquette-header{font-size:1.2rem}.etiquette-code{font-size:1.6rem}.etiquette-gros{font-size:2.8rem}@page{size:A4 portrait;margin:0}}@media screen{#etiquettes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.etiquette{border:2px solid #000;padding:8px;min-height:200px}.etiquette-content{display:flex;height:100%;gap:10px}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center}.etiquette-right{display:flex;align-items:center;justify-content:center}}`}</style>
+        <style jsx global>{`.etiquette-header{font-size:.7rem;font-weight:bold}.etiquette-code{font-size:.85rem;font-family:monospace;font-weight:bold}.etiquette-gros{font-size:1.4rem;font-weight:bold;line-height:1.05}@media print{html,body{margin:0!important;padding:0!important;background:#fff!important}.etiquette-page{min-height:0!important;padding:0!important;margin:0!important;background:none!important}.etiquette-sheet{max-width:none!important;margin:0!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:none!important}.etiquette-toolbar{display:none!important}#etiquettes-grid{display:block;width:210mm;padding:0;margin:0}.etiquette{width:210mm;height:296mm;padding:12mm;box-sizing:border-box;page-break-inside:avoid;break-inside:avoid;page-break-after:always;break-after:page;margin:0}.etiquette:last-child{page-break-after:auto;break-after:auto}.etiquette-content{border:1px solid #000;border-radius:2mm;box-sizing:border-box;display:flex;flex-direction:column;height:100%;width:100%;gap:8mm;align-items:center;justify-content:center;padding:8mm}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;width:100%}.etiquette-right{display:flex;align-items:center;justify-content:center}.etiquette-right svg{width:60mm!important;height:60mm!important}.etiquette-header{font-size:1.2rem}.etiquette-code{font-size:1.6rem}.etiquette-gros{font-size:2.8rem}@page{size:A4 portrait;margin:0}}@media screen{#etiquettes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.etiquette{border:2px solid #000;padding:8px;min-height:200px}.etiquette-content{display:flex;height:100%;gap:10px}.etiquette-left{flex:1;display:flex;flex-direction:column;justify-content:center}.etiquette-right{display:flex;align-items:center;justify-content:center}}`}</style>
       </>
     )
   }
@@ -1260,7 +1266,7 @@ export default function Home() {
                               <td className="px-3 py-2">{l.code_fournisseur}</td>
                               <td className="px-3 py-2">{new Date(l.date_reception).toLocaleDateString('fr-FR')}</td>
                               <td className="px-3 py-2 text-right">{l.nb_bobines}</td>
-                              <td className="px-3 py-2 text-center"><button onClick={() => handleEditLot(l.id)} className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-xs">✏️ Éditer</button></td>
+                              <td className="px-3 py-2 text-center"><div className="flex gap-1 justify-center"><button onClick={() => handleEditLot(l.id)} className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-xs">✏️ Éditer</button><button onClick={() => imprimerEtiquettesLot(l)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">🏷️ Étiquettes</button></div></td>
                             </tr>
                           ))}
                         </tbody>
